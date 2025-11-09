@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Upload, Loader2, Shirt } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
+import Image from "next/image";
 
 export default function Home() {
   const [garmentType, setGarmentType] = useState("");
@@ -274,7 +275,7 @@ export default function Home() {
                     </h3>
                     <div className='bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center'>
                       <p className='text-slate-600 text-center'>
-                        {generatedViews.front}
+                        <Image src={generatedViews.front} alt="Front View" />
                       </p>
                     </div>
                   </div>
@@ -285,7 +286,7 @@ export default function Home() {
                     </h3>
                     <div className='bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center'>
                       <p className='text-slate-600 text-center'>
-                        {generatedViews.side}
+                        <Image src={generatedViews.side} alt="Side View" />
                       </p>
                     </div>
                   </div>
@@ -296,7 +297,7 @@ export default function Home() {
                     </h3>
                     <div className='bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center'>
                       <p className='text-slate-600 text-center'>
-                        {generatedViews.back}
+                        <Image src={generatedViews.back} alt="Back View" />
                       </p>
                     </div>
                   </div>
