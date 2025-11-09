@@ -99,6 +99,8 @@ export default function Home() {
 
       const result = await response.json();
 
+      console.log("Generated views result:", result);
+
       if (result.success) {
         setGeneratedViews({
           front: result.generatedFront,
@@ -275,7 +277,12 @@ export default function Home() {
                     </h3>
                     <div className='bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center'>
                       <p className='text-slate-600 text-center'>
-                        <Image src={generatedViews.front} alt="Front View" />
+                        <Image
+                          width={500}
+                          height={500}
+                          src={generatedViews.front}
+                          alt='Front View'
+                        />
                       </p>
                     </div>
                   </div>
@@ -286,7 +293,12 @@ export default function Home() {
                     </h3>
                     <div className='bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center'>
                       <p className='text-slate-600 text-center'>
-                        <Image src={generatedViews.side} alt="Side View" />
+                        <Image
+                          width={500}
+                          height={500}
+                          src={generatedViews.side}
+                          alt='Side View'
+                        />
                       </p>
                     </div>
                   </div>
@@ -297,7 +309,12 @@ export default function Home() {
                     </h3>
                     <div className='bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center'>
                       <p className='text-slate-600 text-center'>
-                        <Image src={generatedViews.back} alt="Back View" />
+                        <Image
+                          width={500}
+                          height={500}
+                          src={generatedViews.back}
+                          alt='Back View'
+                        />
                       </p>
                     </div>
                   </div>
