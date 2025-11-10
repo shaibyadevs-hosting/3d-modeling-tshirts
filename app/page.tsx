@@ -55,8 +55,8 @@ export default function Home() {
   };
 
   const handleGenerate = async () => {
-    if (!garmentType || !frontView || !backView) {
-      alert("Please select garment type and upload both front and back images");
+    if (!garmentType || !frontView) {
+      alert("Please select garment type and upload the front image");
       return;
     }
 
@@ -73,7 +73,7 @@ export default function Home() {
         .insert({
           garment_type: garmentType,
           front_view_url: frontPreview,
-          back_view_url: backPreview,
+          back_view_url: backPreview || null,
           status: "processing",
         })
         .select()
@@ -90,7 +90,7 @@ export default function Home() {
         },
         body: JSON.stringify({
           frontViewBase64: frontPreview,
-          backViewBase64: backPreview,
+          backViewBase64: backPreview || "",
           garmentType,
         }),
       });
@@ -99,13 +99,13 @@ export default function Home() {
 
       const result = await response.json();
 
-      console.log("Generated views result:", result);
+      // console.log("Generated views result:", result);
 
       if (result.success) {
         setGeneratedViews({
           front: result.generatedFront,
           side: result.generatedSide,
-          back: result.generatedBack,
+          back: result.generatedBack || "",
         });
 
         await supabase
@@ -113,7 +113,7 @@ export default function Home() {
           .update({
             generated_front_url: result.generatedFront,
             generated_side_url: result.generatedSide,
-            generated_back_url: result.generatedBack,
+            generated_back_url: result.generatedBack || null,
             status: "completed",
           })
           .eq("id", garmentData.id);
@@ -165,7 +165,12 @@ export default function Home() {
                     <SelectItem value='shirt'>Shirt</SelectItem>
                     <SelectItem value='jacket'>Jacket</SelectItem>
                     <SelectItem value='hoodie'>Hoodie</SelectItem>
-                    <SelectItem value='dress'>Dress</SelectItem>
+                    <SelectItem value='sweater'>Sweater</SelectItem>
+                    <SelectItem value='jeans'>Jeans</SelectItem>
+                    <SelectItem value='trousers'>Trousers</SelectItem>
+                    <SelectItem value='shorts'>Shorts</SelectItem>
+                    <SelectItem value='skirt'>Skirt</SelectItem>
+                    <SelectItem value='leggings'>Leggings</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -242,9 +247,7 @@ export default function Home() {
 
               <Button
                 onClick={handleGenerate}
-                disabled={
-                  !garmentType || !frontView || !backView || isProcessing
-                }
+                disabled={!garmentType || !frontView || isProcessing}
                 className='w-full h-12 text-lg'
                 size='lg'
               >
@@ -279,7 +282,7 @@ export default function Home() {
                       <p className='text-slate-600 text-center'>
                         <Image
                           width={500}
-                          height={500}
+                          height={100}
                           src={generatedViews.front}
                           alt='Front View'
                         />
@@ -295,7 +298,7 @@ export default function Home() {
                       <p className='text-slate-600 text-center'>
                         <Image
                           width={500}
-                          height={500}
+                          height={100}
                           src={generatedViews.side}
                           alt='Side View'
                         />
@@ -311,7 +314,7 @@ export default function Home() {
                       <p className='text-slate-600 text-center'>
                         <Image
                           width={500}
-                          height={500}
+                          height={100}
                           src={generatedViews.back}
                           alt='Back View'
                         />

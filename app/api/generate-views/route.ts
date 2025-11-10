@@ -37,42 +37,90 @@ export async function POST(request: NextRequest) {
       };
     };
 
+    const upperwearTypes = [
+      "t-shirt",
+      "shirt",
+      "hoodie",
+      "jacket",
+      "sweater",
+      // "blouse",
+      // "coat",
+      // "cardigan",
+      // "vest",
+      // "tank top",
+    ];
+
+    const lowerwearTypes = [
+      "jeans",
+      "trousers",
+      "shorts",
+      "skirt",
+      "leggings",
+      // "capris",
+      // "cargo pants",
+      // "chinos",
+      // "dress pants",
+      // "culottes",
+    ];
+
+    const promptInvisiblePerson =
+      "make the person invisible, only the GARMENT should be visible( with sleeves straight)";
+
+    let promptFront = "";
+    let promptSide = "";
+    let promptBack = "";
+
+    if (upperwearTypes.includes(garmentType.toLowerCase())) {
+      console.log("Garment type identified as upperwear:", garmentType);
+
+      promptFront =
+        "I want a waist up closeup shot of a male to wear the the GARMENT in front of a white backdrop with hands straight.";
+      promptSide = "I want a side view of the IMAGE";
+      promptBack =
+        "I want a back view of a waist up closeup shot of a GENDER(if male dress then use male gender else use female gender) to wear the the garment in front of a white backdrop with hands straight.";
+    } else if (lowerwearTypes.includes(garmentType.toLowerCase())) {
+      console.log("Garment type identified as lowerwear:", garmentType);
+
+      promptFront =
+        "I want a waist down closeup shot of a GENDER to wear the GARMENT in front of a white backdrop";
+      promptSide = "I want a side view of the IMAGE";
+      promptBack =
+        "I want a back view of a waist down closeup shot of a GENDER(if male dress then use male gender else use female gender) to wear the the garment in front of a white backdrop with hands straight.";
+    }
+
     const generatedFrontResult = await model.generateContent([
-      `Front view of the ${garmentType} should appear as if someone invisible has worn it. Make it look realistic with proper depth and shadows, showing how the fabric drapes naturally on an invisible body form. Background of the image should be white. It has to look a 3D image of garment.`,
+      promptFront + ". " + promptInvisiblePerson,
       convertBase64ToGenerativePart(frontViewBase64, "image/jpeg"),
     ]);
-    // const generatedFrontText = generatedFrontResult.response.text();
 
-    console.log("Generated front view- ", generatedFrontResult);
+    const outputFrontBase64 = extractImageBase64(generatedFrontResult);
+    const generatedFrontText = `data:image/png;base64,${outputFrontBase64}`;
+
+    console.log("Generated front view");
 
     const generatedSideResult = await model.generateContent([
-      `Side view of the ${garmentType} based on this front view. Show how it would look from the side when worn by an invisible person, with realistic fabric draping and dimensional depth. Background of the image should be white. It has to look like a 3D image of garment.`,
-      convertBase64ToGenerativePart(frontViewBase64, "image/jpeg"),
+      promptSide,
+      convertBase64ToGenerativePart(outputFrontBase64, "image/png"),
     ]);
-    // const generatedSideText = generatedSideResult.response.text();
 
-    console.log("Generated side view- ", generatedSideResult);
-
-    const generatedBackResult = await model.generateContent([
-      `Back view of the ${garmentType} should appear as if someone invisible has worn it. Make it look realistic with proper depth and shadows, showing how the fabric drapes naturally on an invisible body form from behind. Background of the image should be white. It has to look like a 3D image of garment.`,
-      convertBase64ToGenerativePart(backViewBase64, "image/jpeg"),
-    ]);
-    // const generatedBackText = generatedBackResult.response.text();
-
-    console.log("Generated back view- ", generatedBackResult);
-
-    // ✅ Extract base64 values
-    const outputFrontBase64 = extractImageBase64(generatedFrontResult);
     const outputSideBase64 = extractImageBase64(generatedSideResult);
-    const outputBackBase64 = extractImageBase64(generatedBackResult);
-
-    // console.log("Output Front Base64:", outputFrontBase64);
-    // console.log("Output Side Base64:", outputSideBase64);
-    // console.log("Output Back Base64:", outputBackBase64);
-
-    const generatedFrontText = `data:image/png;base64,${outputFrontBase64}`;
     const generatedSideText = `data:image/png;base64,${outputSideBase64}`;
-    const generatedBackText = `data:image/png;base64,${outputBackBase64}`;
+
+    console.log("Generated side view");
+
+    let generatedBackText = "";
+
+    if (backViewBase64 && backViewBase64.trim() !== "") {
+      const generatedBackResult = await model.generateContent([
+        promptBack + ". " + promptInvisiblePerson,
+        convertBase64ToGenerativePart(backViewBase64, "image/jpeg"),
+      ]);
+
+      console.log("Generated back view");
+
+      const outputBackBase64 = extractImageBase64(generatedBackResult);
+      generatedBackText = `data:image/png;base64,${outputBackBase64}`;
+    }
 
     return NextResponse.json({
       success: true,
