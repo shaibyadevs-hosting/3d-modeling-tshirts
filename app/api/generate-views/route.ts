@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error generating views:", error);
     return NextResponse.json(
-      { success: false, error: "Failed to generate views" },
+      { success: false, error: "Failed to generate views: " + error },
       { status: 500 }
     );
   }
