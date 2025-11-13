@@ -19,23 +19,10 @@ function extractImageBase64(result: any) {
 export async function POST(request: NextRequest) {
   try {
     console.log("Received request to generate views");
-    const { frontViewBase64, backViewBase64, garmentType } =
+    const { frontViewBase64, backViewBase64, mimeType, garmentType } =
       await request.json();
 
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-image" });
-
-    const convertBase64ToGenerativePart = (
-      base64Data: string,
-      mimeType: string
-    ) => {
-      const base64 = base64Data.replace(/^data:image\/\w+;base64,/, "");
-      return {
-        inlineData: {
-          data: base64,
-          mimeType,
-        },
-      };
-    };
 
     const upperwearTypes = [
       "t-shirt",
@@ -90,7 +77,7 @@ export async function POST(request: NextRequest) {
 
     const generatedFrontResult = await model.generateContent([
       promptFront + ". " + promptInvisiblePerson,
-      convertBase64ToGenerativePart(frontViewBase64, "image/jpeg"),
+      convertBase64ToGenerativePart(frontViewBase64, mimeType),
     ]);
 
     const outputFrontBase64 = extractImageBase64(generatedFrontResult);
@@ -100,7 +87,7 @@ export async function POST(request: NextRequest) {
 
     const generatedSideResult = await model.generateContent([
       promptSide,
-      convertBase64ToGenerativePart(outputFrontBase64, "image/png"),
+      convertBase64ToGenerativePart(outputFrontBase64, mimeType),
     ]);
 
     const outputSideBase64 = extractImageBase64(generatedSideResult);
@@ -136,3 +123,16 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+const convertBase64ToGenerativePart = (
+  base64Data: string,
+  mimeType: string
+) => {
+  const base64 = base64Data.replace(/^data:image\/\w+;base64,/, "");
+  return {
+    inlineData: {
+      data: base64,
+      mimeType,
+    },
+  };
+};

@@ -24,6 +24,7 @@ export default function Home() {
   const [garmentType, setGarmentType] = useState("");
   const [frontView, setFrontView] = useState<File | null>(null);
   const [backView, setBackView] = useState<File | null>(null);
+  const [mimeType, setMimeType] = useState<string>("");
   const [frontPreview, setFrontPreview] = useState<string>("");
   const [backPreview, setBackPreview] = useState<string>("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -33,25 +34,57 @@ export default function Home() {
     back: string;
   } | null>(null);
 
+  const ALLOWED_TYPES = ["image/jpeg", "image/png"];
+
+  const MAX_SIZE_MB = 12;
+  const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
+
   const handleFileChange = (
     e: React.ChangeEvent<HTMLInputElement>,
     view: "front" | "back"
   ) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result as string;
-        if (view === "front") {
-          setFrontView(file);
-          setFrontPreview(result);
-        } else {
-          setBackView(file);
-          setBackPreview(result);
-        }
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      alert("Please upload a valid image file");
+      return;
     }
+
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      alert("Invalid image format! Please upload JPEG, PNG, or WebP only.");
+      return;
+    }
+
+    if (file.size > MAX_SIZE_BYTES) {
+      alert(`File is too large! Max allowed: ${MAX_SIZE_MB} MB`);
+      return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onloadend = () => {
+      const dataUrl = reader.result as string;
+
+      if (view === "front") {
+        setFrontView(file);
+        setFrontPreview(dataUrl);
+      } else {
+        if (mimeType && file.type !== mimeType) {
+          alert(
+            `Back view image must be of the same image format as front view: ${mimeType}`
+          );
+          return;
+        }
+        setBackView(file);
+        setBackPreview(dataUrl);
+      }
+
+      setMimeType(file.type);
+    };
+
+    // 2️⃣ Read the file only if size is acceptable
+    reader.readAsDataURL(file);
   };
 
   const handleGenerate = async () => {
@@ -91,6 +124,7 @@ export default function Home() {
         body: JSON.stringify({
           frontViewBase64: frontPreview,
           backViewBase64: backPreview || "",
+          mimeType,
           garmentType,
         }),
       });
@@ -174,7 +208,10 @@ export default function Home() {
                   </SelectContent>
                 </Select>
               </div>
-
+              <div className="text-red-800 text-sm pt-8">
+                Image file size must be less than 12 MB. Allowed formats: JPEG,
+                PNG.
+              </div>
               <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
                 <div>
                   <label className='block text-sm font-medium text-slate-700 mb-2'>
