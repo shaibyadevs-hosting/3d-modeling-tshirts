@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -19,6 +19,8 @@ import {
 import { Upload, Loader2, Shirt } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import Image from "next/image";
+import AuthModal from "@/components/AuthModal";
+import PricingModal from "@/components/PricingModal";
 
 export default function Home() {
   const [garmentType, setGarmentType] = useState("");
@@ -33,6 +35,28 @@ export default function Home() {
     side: string;
     back: string;
   } | null>(null);
+  const [user, setUser] = useState<any>(null);
+  const [credits, setCredits] = useState(0);
+  const [isPaid, setIsPaid] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
+  const [showPricing, setShowPricing] = useState(false);
+  const [freeCreditsUsed, setFreeCreditsUsed] = useState(0);
+
+  useEffect(() => {
+    const freeUsed = parseInt(localStorage.getItem("freeCreditsUsed") || "0");
+    setFreeCreditsUsed(freeUsed);
+
+    const currentUser = localStorage.getItem("currentUser");
+    if (currentUser) {
+      const users = JSON.parse(localStorage.getItem("users") || "{}");
+      const userData = users[currentUser];
+      if (userData) {
+        setUser({ email: currentUser, ...userData });
+        setCredits(userData.credits);
+        setIsPaid(userData.isPaid);
+      }
+    }
+  }, []);
 
   const ALLOWED_TYPES = ["image/jpeg", "image/png"];
 
@@ -83,14 +107,46 @@ export default function Home() {
       setMimeType(file.type);
     };
 
-    // 2️⃣ Read the file only if size is acceptable
     reader.readAsDataURL(file);
+  };
+
+  const handleLogin = (userData: any) => {
+    setUser(userData);
+    setCredits(userData.credits);
+    setIsPaid(userData.isPaid);
+  };
+
+  const handlePurchase = (addCredits: number) => {
+    if (!user) return;
+    const users = JSON.parse(localStorage.getItem("users") || "{}");
+    users[user.email].credits += addCredits;
+    users[user.email].isPaid = true;
+    localStorage.setItem("users", JSON.stringify(users));
+    setCredits(users[user.email].credits);
+    setIsPaid(true);
+    setShowPricing(false);
   };
 
   const handleGenerate = async () => {
     if (!garmentType || !frontView) {
       alert("Please select garment type and upload the front image");
       return;
+    }
+
+    if (freeCreditsUsed < 3) {
+      setFreeCreditsUsed(freeCreditsUsed + 1);
+      localStorage.setItem("freeCreditsUsed", (freeCreditsUsed + 1).toString());
+    } else if (!user) {
+      setShowAuth(true);
+      return;
+    } else if (credits <= 0) {
+      setShowPricing(true);
+      return;
+    } else {
+      const users = JSON.parse(localStorage.getItem("users") || "{}");
+      users[user.email].credits -= 1;
+      localStorage.setItem("users", JSON.stringify(users));
+      setCredits(users[user.email].credits);
     }
 
     setIsProcessing(true);
@@ -133,8 +189,6 @@ export default function Home() {
 
       const result = await response.json();
 
-      // console.log("Generated views result:", result);
-
       if (result.success) {
         setGeneratedViews({
           front: result.generatedFront,
@@ -162,49 +216,67 @@ export default function Home() {
     }
   };
 
+  const downloadImage = (url: string, name: string) => {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    link.click();
+  };
+
   return (
-    <div className='min-h-screen bg-gradient-to-br from-slate-50 to-slate-100'>
-      <div className='container mx-auto px-4 py-12'>
-        <div className='text-center mb-12'>
-          <div className='flex items-center justify-center mb-4'>
-            <Shirt className='w-12 h-12 text-slate-700 mr-3' />
-            <h1 className='text-4xl font-bold text-slate-900'>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+      <div className="container mx-auto px-4 py-12">
+        <div className="text-center mb-12">
+          <div className="flex items-center justify-center mb-4">
+            <Shirt className="w-12 h-12 text-slate-700 mr-3" />
+            <h1 className="text-4xl font-bold text-slate-900">
               3D Garment Visualizer
             </h1>
           </div>
-          <p className='text-lg text-slate-600'>
+          <p className="text-lg text-slate-600">
             Upload front and back images to generate 3D views of your garment
           </p>
         </div>
+        {user && (
+          <p>
+            Credits: {credits} | Paid: {isPaid ? "Yes" : "No"}
+          </p>
+        )}
+        <button
+          onClick={() => setShowAuth(true)}
+          className="mb-4 bg-blue-500 text-white px-4 py-2"
+        >
+          Login/Signup
+        </button>
 
-        <div className='max-w-6xl mx-auto'>
-          <Card className='shadow-xl border-slate-200'>
+        <div className="max-w-6xl mx-auto">
+          <Card className="shadow-xl border-slate-200">
             <CardHeader>
               <CardTitle>Upload Garment Images</CardTitle>
               <CardDescription>
                 Select the garment type and upload front and back view images
               </CardDescription>
             </CardHeader>
-            <CardContent className='space-y-6'>
+            <CardContent className="space-y-6">
               <div>
-                <label className='block text-sm font-medium text-slate-700 mb-2'>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
                   Garment Type
                 </label>
                 <Select value={garmentType} onValueChange={setGarmentType}>
-                  <SelectTrigger className='w-full'>
-                    <SelectValue placeholder='Select garment type' />
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select garment type" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value='t-shirt'>T-Shirt</SelectItem>
-                    <SelectItem value='shirt'>Shirt</SelectItem>
-                    <SelectItem value='jacket'>Jacket</SelectItem>
-                    <SelectItem value='hoodie'>Hoodie</SelectItem>
-                    <SelectItem value='sweater'>Sweater</SelectItem>
-                    <SelectItem value='jeans'>Jeans</SelectItem>
-                    <SelectItem value='trousers'>Trousers</SelectItem>
-                    <SelectItem value='shorts'>Shorts</SelectItem>
-                    <SelectItem value='skirt'>Skirt</SelectItem>
-                    <SelectItem value='leggings'>Leggings</SelectItem>
+                    <SelectItem value="t-shirt">T-Shirt</SelectItem>
+                    <SelectItem value="shirt">Shirt</SelectItem>
+                    <SelectItem value="jacket">Jacket</SelectItem>
+                    <SelectItem value="hoodie">Hoodie</SelectItem>
+                    <SelectItem value="sweater">Sweater</SelectItem>
+                    <SelectItem value="jeans">Jeans</SelectItem>
+                    <SelectItem value="trousers">Trousers</SelectItem>
+                    <SelectItem value="shorts">Shorts</SelectItem>
+                    <SelectItem value="skirt">Skirt</SelectItem>
+                    <SelectItem value="leggings">Leggings</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -212,33 +284,33 @@ export default function Home() {
                 Image file size must be less than 12 MB. Allowed formats: JPEG,
                 PNG.
               </div>
-              <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className='block text-sm font-medium text-slate-700 mb-2'>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     Front View
                   </label>
-                  <div className='relative'>
+                  <div className="relative">
                     <input
-                      type='file'
-                      accept='image/*'
+                      type="file"
+                      accept="image/*"
                       onChange={(e) => handleFileChange(e, "front")}
-                      className='hidden'
-                      id='front-upload'
+                      className="hidden"
+                      id="front-upload"
                     />
                     <label
-                      htmlFor='front-upload'
-                      className='flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-slate-400 transition-colors bg-white'
+                      htmlFor="front-upload"
+                      className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-slate-400 transition-colors bg-white"
                     >
                       {frontPreview ? (
                         <img
                           src={frontPreview}
-                          alt='Front view'
-                          className='w-full h-full object-contain rounded-lg'
+                          alt="Front view"
+                          className="w-full h-full object-contain rounded-lg"
                         />
                       ) : (
-                        <div className='text-center'>
-                          <Upload className='w-12 h-12 text-slate-400 mx-auto mb-2' />
-                          <p className='text-sm text-slate-600'>
+                        <div className="text-center">
+                          <Upload className="w-12 h-12 text-slate-400 mx-auto mb-2" />
+                          <p className="text-sm text-slate-600">
                             Upload front view
                           </p>
                         </div>
@@ -248,31 +320,31 @@ export default function Home() {
                 </div>
 
                 <div>
-                  <label className='block text-sm font-medium text-slate-700 mb-2'>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     Back View
                   </label>
-                  <div className='relative'>
+                  <div className="relative">
                     <input
-                      type='file'
-                      accept='image/*'
+                      type="file"
+                      accept="image/*"
                       onChange={(e) => handleFileChange(e, "back")}
-                      className='hidden'
-                      id='back-upload'
+                      className="hidden"
+                      id="back-upload"
                     />
                     <label
-                      htmlFor='back-upload'
-                      className='flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-slate-400 transition-colors bg-white'
+                      htmlFor="back-upload"
+                      className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-slate-400 transition-colors bg-white"
                     >
                       {backPreview ? (
                         <img
                           src={backPreview}
-                          alt='Back view'
-                          className='w-full h-full object-contain rounded-lg'
+                          alt="Back view"
+                          className="w-full h-full object-contain rounded-lg"
                         />
                       ) : (
-                        <div className='text-center'>
-                          <Upload className='w-12 h-12 text-slate-400 mx-auto mb-2' />
-                          <p className='text-sm text-slate-600'>
+                        <div className="text-center">
+                          <Upload className="w-12 h-12 text-slate-400 mx-auto mb-2" />
+                          <p className="text-sm text-slate-600">
                             Upload back view
                           </p>
                         </div>
@@ -285,12 +357,12 @@ export default function Home() {
               <Button
                 onClick={handleGenerate}
                 disabled={!garmentType || !frontView || isProcessing}
-                className='w-full h-12 text-lg'
-                size='lg'
+                className="w-full h-12 text-lg"
+                size="lg"
               >
                 {isProcessing ? (
                   <>
-                    <Loader2 className='mr-2 h-5 w-5 animate-spin' />
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                     Generating 3D Views...
                   </>
                 ) : (
@@ -301,7 +373,7 @@ export default function Home() {
           </Card>
 
           {generatedViews && (
-            <Card className='mt-8 shadow-xl border-slate-200'>
+            <Card className="mt-8 shadow-xl border-slate-200">
               <CardHeader>
                 <CardTitle>Generated 3D Views</CardTitle>
                 <CardDescription>
@@ -310,59 +382,60 @@ export default function Home() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
-                  <div className='space-y-2'>
-                    <h3 className='text-sm font-semibold text-slate-700 text-center'>
-                      Front View
-                    </h3>
-                    <div className='bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center'>
-                      <p className='text-slate-600 text-center'>
-                        <Image
-                          width={500}
-                          height={100}
-                          src={generatedViews.front}
-                          alt='Front View'
-                        />
-                      </p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {[
+                    {
+                      key: "front",
+                      title: "Front View",
+                      src: generatedViews.front,
+                    },
+                    {
+                      key: "side",
+                      title: "Side View",
+                      src: generatedViews.side,
+                    },
+                    {
+                      key: "back",
+                      title: "Back View",
+                      src: generatedViews.back,
+                    },
+                  ].map(({ key, title, src }) => (
+                    <div key={key} className="space-y-2">
+                      <h3 className="text-sm font-semibold text-slate-700 text-center">
+                        {title}
+                      </h3>
+                      <div className="bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center relative">
+                        <Image width={500} height={100} src={src} alt={title} />
+                        {freeCreditsUsed <= 3 && !isPaid && (
+                          <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center text-white text-xl">
+                            Watermark
+                          </div>
+                        )}
+                        {isPaid && credits > 0 && (
+                          <button
+                            onClick={() => downloadImage(src, `${key}.png`)}
+                            className="absolute bottom-2 right-2 bg-blue-500 text-white px-2 py-1"
+                          >
+                            Download
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-
-                  <div className='space-y-2'>
-                    <h3 className='text-sm font-semibold text-slate-700 text-center'>
-                      Side View
-                    </h3>
-                    <div className='bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center'>
-                      <p className='text-slate-600 text-center'>
-                        <Image
-                          width={500}
-                          height={100}
-                          src={generatedViews.side}
-                          alt='Side View'
-                        />
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className='space-y-2'>
-                    <h3 className='text-sm font-semibold text-slate-700 text-center'>
-                      Back View
-                    </h3>
-                    <div className='bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center'>
-                      <p className='text-slate-600 text-center'>
-                        <Image
-                          width={500}
-                          height={100}
-                          src={generatedViews.back}
-                          alt='Back View'
-                        />
-                      </p>
-                    </div>
-                  </div>
+                  ))}
                 </div>
               </CardContent>
             </Card>
           )}
         </div>
+        {showAuth && (
+          <AuthModal onClose={() => setShowAuth(false)} onLogin={handleLogin} />
+        )}
+        {showPricing && (
+          <PricingModal
+            onClose={() => setShowPricing(false)}
+            onPurchase={handlePurchase}
+          />
+        )}
       </div>
     </div>
   );
