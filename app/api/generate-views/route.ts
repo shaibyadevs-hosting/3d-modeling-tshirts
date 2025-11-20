@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { verifyToken, checkAndDeductCredits } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -19,6 +20,46 @@ function extractImageBase64(result: any) {
 export async function POST(request: NextRequest) {
   try {
     console.log("Received request to generate views");
+
+    // Get access token from headers
+    const authHeader = request.headers.get("authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return NextResponse.json(
+        { success: false, error: "Authentication required" },
+        { status: 401 }
+      );
+    }
+
+    const token = authHeader.substring(7); // Remove "Bearer " prefix
+
+    // Verify token and get user
+    const authResult = await verifyToken(token);
+    if (!authResult.success || !authResult.user) {
+      return NextResponse.json(
+        { success: false, error: "Invalid or expired token" },
+        { status: 401 }
+      );
+    }
+
+    const user = authResult.user;
+
+    // Check and deduct credits
+    const creditResult = await checkAndDeductCredits(user.id);
+    if (!creditResult.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: creditResult.error || "Insufficient credits",
+          credits: creditResult.credits || 0,
+        },
+        { status: 403 }
+      );
+    }
+
+    console.log(
+      `Credits deducted for user ${user.email}. Remaining: ${creditResult.credits}`
+    );
+
     const { frontViewBase64, backViewBase64, mimeType, garmentType } =
       await request.json();
 
@@ -109,11 +150,14 @@ export async function POST(request: NextRequest) {
       generatedBackText = `data:image/png;base64,${outputBackBase64}`;
     }
 
+    console.log("All views generated successfully");
+
     return NextResponse.json({
       success: true,
       generatedFront: generatedFrontText,
       generatedSide: generatedSideText,
       generatedBack: generatedBackText,
+      remainingCredits: creditResult.credits,
     });
   } catch (error) {
     console.error("Error generating views:", error);
