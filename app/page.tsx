@@ -117,6 +117,15 @@ export default function Home() {
       return;
     }
 
+    if (file.type !== "image/png" && file.type !== "image/jpeg") {
+      toast({
+        title: "Unsupported Format",
+        description: "Only PNG and JPEG formats are supported",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const reader = new FileReader();
     reader.onloadend = () => {
       const dataUrl = reader.result as string;
