@@ -12,9 +12,22 @@ import {
   CardFooter,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Shirt, Check, Zap, Rocket, Building2, ArrowLeft } from "lucide-react";
-import { getCurrentUser, updateUserCredits } from "@/lib/auth";
+import {
+  Shirt,
+  Check,
+  Zap,
+  Rocket,
+  Building2,
+  ArrowLeft,
+  Loader2,
+} from "lucide-react";
+import { getCurrentUser } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
+import {
+  createOrder,
+  verifyPayment,
+  initiateRazorpayPayment,
+} from "@/lib/razorpay";
 import Link from "next/link";
 
 type PricingTier = {
@@ -28,7 +41,7 @@ type PricingTier = {
 
 const pricingTiers: PricingTier[] = [
   {
-    name: "Pro",
+    name: "pro",
     price: 20,
     credits: 200,
     icon: Zap,
@@ -41,7 +54,7 @@ const pricingTiers: PricingTier[] = [
     ],
   },
   {
-    name: "Startup",
+    name: "startup",
     price: 40,
     credits: 500,
     icon: Rocket,
@@ -56,7 +69,7 @@ const pricingTiers: PricingTier[] = [
     ],
   },
   {
-    name: "Business",
+    name: "business",
     price: 100,
     credits: 1500,
     icon: Building2,
@@ -102,35 +115,84 @@ export default function PricingPage() {
     setIsLoading(true);
     setLoadingTier(tier.name);
 
-    // Simulate payment processing
-    // In production, integrate with a payment gateway like Stripe
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+      // Create Razorpay order
+      const orderData = await createOrder(
+        tier.name as "pro" | "startup" | "business",
+        user.id
+      );
 
-    // Update user credits
-    const newCredits = user.credits + tier.credits;
-    const result = await updateUserCredits(user.id, newCredits);
+      // Initialize Razorpay payment
+      await initiateRazorpayPayment({
+        key: orderData.keyId,
+        amount: orderData.amount,
+        currency: orderData.currency,
+        order_id: orderData.orderId,
+        name: "3D Garment Visualizer",
+        description: `Purchase ${tier.credits} credits - ${
+          tier.name.charAt(0).toUpperCase() + tier.name.slice(1)
+        } Plan`,
+        handler: async (response) => {
+          try {
+            // Verify payment
+            const result = await verifyPayment({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              userId: user.id,
+            });
 
-    if (result.success) {
-      toast({
-        title: "Purchase Successful!",
-        description: `${tier.credits} credits have been added to your account.`,
+            toast({
+              title: "Purchase Successful!",
+              description: result.message,
+            });
+
+            // Refresh user data
+            const updatedUser = await getCurrentUser();
+            setUser(updatedUser);
+
+            // Redirect to home after 2 seconds
+            setTimeout(() => {
+              router.push("/");
+            }, 2000);
+          } catch (error: any) {
+            toast({
+              title: "Payment Verification Failed",
+              description: error.message || "Failed to verify payment",
+              variant: "destructive",
+            });
+          } finally {
+            setIsLoading(false);
+            setLoadingTier(null);
+          }
+        },
+        prefill: {
+          email: user.email,
+        },
+        theme: {
+          color: "#2563eb",
+        },
+        modal: {
+          ondismiss: () => {
+            setIsLoading(false);
+            setLoadingTier(null);
+            toast({
+              title: "Payment Cancelled",
+              description: "You can try again anytime",
+            });
+          },
+        },
       });
-      setUser(result.user);
-
-      // Redirect to home after 2 seconds
-      setTimeout(() => {
-        router.push("/");
-      }, 2000);
-    } else {
+    } catch (error: any) {
+      console.error("Error initiating payment:", error);
       toast({
-        title: "Purchase Failed",
-        description: result.error || "Failed to add credits",
+        title: "Payment Failed",
+        description: error.message || "Failed to initiate payment",
         variant: "destructive",
       });
+      setIsLoading(false);
+      setLoadingTier(null);
     }
-
-    setIsLoading(false);
-    setLoadingTier(null);
   };
 
   return (
