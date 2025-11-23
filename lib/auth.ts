@@ -53,13 +53,13 @@ export const signUp = async (email: string, password: string) => {
       .insert({
         email,
         password_hash: passwordHash,
-        credits: 3, // Initial 3 free credits
+        credits: 9, // Initial 9 free credits
       })
       .select()
       .single();
 
     if (error) throw error;
-    console.log("User signed up:", data);
+    // console.log("User signed up:", data);
     return { success: true, user: data };
   } catch (error: any) {
     return { success: false, error: error.message };
@@ -99,7 +99,7 @@ export const signIn = async (email: string, password: string) => {
     // Store encrypted token in localStorage
     storeToken(accessToken);
 
-    console.log("User signed in:", users);
+    // console.log("User signed in:", users);
 
     return { success: true, user: users, token: accessToken };
   } catch (error: any) {
@@ -123,7 +123,7 @@ export const signOut = async () => {
     // Remove token from localStorage
     removeToken();
 
-    console.log("User signed out");
+    // console.log("User signed out");
 
     return { success: true };
   } catch (error: any) {
@@ -155,7 +155,7 @@ export const verifyToken = async (token: string) => {
       return { success: false, error: "User not found" };
     }
 
-    console.log("Token verified for user:", user);
+    // console.log("Token verified for user:", user);
 
     return { success: true, user };
   } catch (error: any) {
@@ -169,7 +169,7 @@ export const getCurrentUser = async () => {
   if (!token) return null;
 
   const result = await verifyToken(token);
-  console.log("Current user fetched:", result);
+  // console.log("Current user fetched:", result);
   return result.success ? result.user : null;
 };
 
@@ -188,7 +188,7 @@ export const updateUserCredits = async (userId: string, credits: number) => {
 
     if (error) throw error;
 
-    console.log("User credits updated:", data);
+    // console.log("User credits updated:", data);
     return { success: true, user: data };
   } catch (error: any) {
     return { success: false, error: error.message };
@@ -221,7 +221,7 @@ export const checkAndDeductCredits = async (userId: string) => {
       return { success: false, error: "Failed to update credits" };
     }
 
-    console.log("Credits deducted. New credits:", newCredits);
+    // console.log("Credits deducted. New credits:", newCredits);
 
     return { success: true, credits: newCredits };
   } catch (error: any) {

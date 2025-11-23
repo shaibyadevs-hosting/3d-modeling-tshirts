@@ -60,8 +60,14 @@ export async function POST(request: NextRequest) {
       `Credits deducted for user ${user.email}. Remaining: ${creditResult.credits}`
     );
 
-    const { frontViewBase64, backViewBase64, mimeType, garmentType } =
-      await request.json();
+    const {
+      frontViewBase64,
+      selectedFrontViewBase64,
+      backViewBase64,
+      generatedImageType,
+      mimeType,
+      garmentType,
+    } = await request.json();
 
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-image" });
 
@@ -116,29 +122,94 @@ export async function POST(request: NextRequest) {
         "I want a back view of a waist down closeup shot of a GENDER(if male dress then use male gender else use female gender) to wear the the garment in front of a white backdrop with hands straight.";
     }
 
-    const generatedFrontResult = await model.generateContent([
-      promptFront + ". " + promptInvisiblePerson,
-      convertBase64ToGenerativePart(frontViewBase64, mimeType),
-    ]);
+    if (generatedImageType === "front") {
+      const generatedFrontResult1 = await model.generateContent([
+        promptFront + ". " + promptInvisiblePerson,
+        convertBase64ToGenerativePart(frontViewBase64, mimeType),
+      ]);
 
-    const outputFrontBase64 = extractImageBase64(generatedFrontResult);
-    const generatedFrontText = `data:image/png;base64,${outputFrontBase64}`;
+      const outputFront1Base64 = extractImageBase64(generatedFrontResult1);
+      const generatedFront1Text = `data:image/png;base64,${outputFront1Base64}`;
 
-    console.log("Generated front view");
+      console.log("Generated front view 1");
 
-    const generatedSideResult = await model.generateContent([
-      promptSide,
-      convertBase64ToGenerativePart(outputFrontBase64, mimeType),
-    ]);
+      const generatedFrontResult2 = await model.generateContent([
+        promptFront + ". " + promptInvisiblePerson,
+        convertBase64ToGenerativePart(frontViewBase64, mimeType),
+      ]);
 
-    const outputSideBase64 = extractImageBase64(generatedSideResult);
-    const generatedSideText = `data:image/png;base64,${outputSideBase64}`;
+      const outputFront2Base64 = extractImageBase64(generatedFrontResult2);
+      const generatedFront2Text = `data:image/png;base64,${outputFront2Base64}`;
 
-    console.log("Generated side view");
+      console.log("Generated front view 2");
 
-    let generatedBackText = "";
+      const generatedFrontResult3 = await model.generateContent([
+        promptFront + ". " + promptInvisiblePerson,
+        convertBase64ToGenerativePart(frontViewBase64, mimeType),
+      ]);
 
-    if (backViewBase64 && backViewBase64.trim() !== "") {
+      const outputFront3Base64 = extractImageBase64(generatedFrontResult3);
+      const generatedFront3Text = `data:image/png;base64,${outputFront3Base64}`;
+
+      console.log("Generated front view 3");
+
+      return NextResponse.json({
+        success: true,
+        generatedFront1: generatedFront1Text,
+        generatedFront2: generatedFront2Text,
+        generatedFront3: generatedFront3Text,
+        remainingCredits: creditResult.credits,
+      });
+    } else if (generatedImageType === "side-back") {
+      const generatedSideResult = await model.generateContent([
+        promptSide,
+        convertBase64ToGenerativePart(selectedFrontViewBase64, mimeType),
+      ]);
+
+      const outputSideBase64 = extractImageBase64(generatedSideResult);
+      const generatedSideText = `data:image/png;base64,${outputSideBase64}`;
+
+      console.log("Generated side view");
+
+      let generatedBackText = "";
+
+      if (backViewBase64 && backViewBase64.trim() !== "") {
+        const generatedBackResult = await model.generateContent([
+          promptBack + ". " + promptInvisiblePerson,
+          convertBase64ToGenerativePart(backViewBase64, "image/jpeg"),
+        ]);
+
+        console.log("Generated back view");
+
+        const outputBackBase64 = extractImageBase64(generatedBackResult);
+        generatedBackText = `data:image/png;base64,${outputBackBase64}`;
+      }
+
+      console.log("All views generated successfully");
+
+      return NextResponse.json({
+        success: true,
+        generatedSide: generatedSideText,
+        generatedBack: generatedBackText,
+        remainingCredits: creditResult.credits,
+      });
+    } else if (generatedImageType === "side") {
+      const generatedSideResult = await model.generateContent([
+        promptSide,
+        convertBase64ToGenerativePart(selectedFrontViewBase64, mimeType),
+      ]);
+
+      const outputSideBase64 = extractImageBase64(generatedSideResult);
+      const generatedSideText = `data:image/png;base64,${outputSideBase64}`;
+
+      console.log("Generated side view");
+
+      return NextResponse.json({
+        success: true,
+        generatedSide: generatedSideText,
+        remainingCredits: creditResult.credits,
+      });
+    } else if (generatedImageType === "back") {
       const generatedBackResult = await model.generateContent([
         promptBack + ". " + promptInvisiblePerson,
         convertBase64ToGenerativePart(backViewBase64, "image/jpeg"),
@@ -147,18 +218,19 @@ export async function POST(request: NextRequest) {
       console.log("Generated back view");
 
       const outputBackBase64 = extractImageBase64(generatedBackResult);
-      generatedBackText = `data:image/png;base64,${outputBackBase64}`;
+      const generatedBackText = `data:image/png;base64,${outputBackBase64}`;
+
+      return NextResponse.json({
+        success: true,
+        generatedBack: generatedBackText,
+        remainingCredits: creditResult.credits,
+      });
+    } else {
+      return NextResponse.json(
+        { success: false, error: "Invalid generatedImageType" },
+        { status: 400 }
+      );
     }
-
-    console.log("All views generated successfully");
-
-    return NextResponse.json({
-      success: true,
-      generatedFront: generatedFrontText,
-      generatedSide: generatedSideText,
-      generatedBack: generatedBackText,
-      remainingCredits: creditResult.credits,
-    });
   } catch (error) {
     console.error("Error generating views:", error);
     return NextResponse.json(

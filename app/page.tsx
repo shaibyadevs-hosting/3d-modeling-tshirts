@@ -26,6 +26,7 @@ import {
   User,
   Download,
   AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import Image from "next/image";
@@ -33,30 +34,169 @@ import Link from "next/link";
 import { getCurrentUser, signOut, getToken } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { set } from "date-fns";
 
 export default function Home() {
   const router = useRouter();
   const { toast } = useToast();
 
   const [garmentType, setGarmentType] = useState("");
+  const [garmentRecordID, setGarmentRecordID] = useState<string | null>(null);
   const [frontView, setFrontView] = useState<File | null>(null);
   const [backView, setBackView] = useState<File | null>(null);
   const [mimeType, setMimeType] = useState<string>("");
   const [frontPreview, setFrontPreview] = useState<string>("");
   const [backPreview, setBackPreview] = useState<string>("");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [generatedViews, setGeneratedViews] = useState<{
-    front: string;
-    side: string;
-    back: string;
+  const [generatedFrontViews, setGeneratedFrontViews] = useState<{
+    front1: string;
+    front2: string;
+    front3: string;
   } | null>(null);
+  const [generatedSideViews, setGeneratedSideViews] = useState<{
+    side1: string;
+    side2: string;
+    side3: string;
+  } | null>(null);
+  const [generatedBackViews, setGeneratedBackViews] = useState<{
+    back1: string;
+    back2: string;
+    back3: string;
+  } | null>(null);
+  const [selectedFrontIndex, setSelectedFrontIndex] = useState<number | null>(
+    null
+  );
+  const [regeneratingImage, setRegeneratingImage] = useState<string | null>(
+    null
+  );
   const [user, setUser] = useState<any>(null);
   const [credits, setCredits] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Utility to check if we can store in sessionStorage
+  const canStoreInSession = (key: string, value: string): boolean => {
+    try {
+      const testKey = `__storage_test_${key}`;
+      sessionStorage.setItem(testKey, value);
+      sessionStorage.removeItem(testKey);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
+
   useEffect(() => {
     loadUserData();
+    loadSessionData();
   }, []);
+
+  // Load generated images from sessionStorage on mount
+  const loadSessionData = () => {
+    if (typeof window !== "undefined") {
+      try {
+        const savedFrontViews = sessionStorage.getItem("generatedFrontViews");
+        const savedSideViews = sessionStorage.getItem("generatedSideViews");
+        const savedBackViews = sessionStorage.getItem("generatedBackViews");
+        const savedSelectedIndex = sessionStorage.getItem("selectedFrontIndex");
+
+        if (savedFrontViews)
+          setGeneratedFrontViews(JSON.parse(savedFrontViews));
+        if (savedSideViews) setGeneratedSideViews(JSON.parse(savedSideViews));
+        if (savedBackViews) setGeneratedBackViews(JSON.parse(savedBackViews));
+        if (savedSelectedIndex)
+          setSelectedFrontIndex(JSON.parse(savedSelectedIndex));
+      } catch (error) {
+        console.error("Failed to load session data:", error);
+        // Clear corrupted data
+        sessionStorage.clear();
+      }
+    }
+  };
+
+  // Save generated images to sessionStorage whenever they change
+  // Using smart storage management to prevent quota exceeded errors
+  useEffect(() => {
+    if (typeof window !== "undefined" && generatedFrontViews) {
+      const dataString = JSON.stringify(generatedFrontViews);
+      try {
+        sessionStorage.setItem("generatedFrontViews", dataString);
+      } catch (error: any) {
+        if (error.name === "QuotaExceededError") {
+          console.warn(
+            "SessionStorage quota exceeded. Clearing side and back views..."
+          );
+          // Clear less critical data first (side and back views)
+          sessionStorage.removeItem("generatedSideViews");
+          sessionStorage.removeItem("generatedBackViews");
+          try {
+            sessionStorage.setItem("generatedFrontViews", dataString);
+          } catch (retryError) {
+            console.error(
+              "Still cannot save. Storage full even after cleanup."
+            );
+            toast({
+              title: "Storage Warning",
+              description: "Cannot save all images. Consider downloading them.",
+              variant: "destructive",
+            });
+          }
+        }
+      }
+    }
+  }, [generatedFrontViews]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && generatedSideViews) {
+      const dataString = JSON.stringify(generatedSideViews);
+      try {
+        sessionStorage.setItem("generatedSideViews", dataString);
+      } catch (error: any) {
+        if (error.name === "QuotaExceededError") {
+          console.warn("Cannot save side views - storage quota exceeded");
+          // Notify user to download images
+          toast({
+            title: "Storage Full",
+            description:
+              "Please download your images. They won't persist after refresh.",
+            variant: "destructive",
+          });
+        }
+      }
+    }
+  }, [generatedSideViews]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && generatedBackViews) {
+      const dataString = JSON.stringify(generatedBackViews);
+      try {
+        sessionStorage.setItem("generatedBackViews", dataString);
+      } catch (error: any) {
+        if (error.name === "QuotaExceededError") {
+          console.warn("Cannot save back views - storage quota exceeded");
+          // Notify user to download images
+          toast({
+            title: "Storage Full",
+            description:
+              "Please download your images. They won't persist after refresh.",
+            variant: "destructive",
+          });
+        }
+      }
+    }
+  }, [generatedBackViews]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && selectedFrontIndex !== null) {
+      try {
+        sessionStorage.setItem(
+          "selectedFrontIndex",
+          JSON.stringify(selectedFrontIndex)
+        );
+      } catch (error: any) {
+        console.warn("Failed to save selected index:", error);
+      }
+    }
+  }, [selectedFrontIndex]);
 
   const loadUserData = async () => {
     setIsLoading(true);
@@ -149,7 +289,7 @@ export default function Home() {
     reader.readAsDataURL(file);
   };
 
-  const handleGenerate = async () => {
+  const handleGenerateFrontView = async () => {
     if (!garmentType || !frontView) {
       toast({
         title: "Missing Information",
@@ -180,13 +320,14 @@ export default function Home() {
     }
 
     setIsProcessing(true);
-    setGeneratedViews(null);
+    setGeneratedFrontViews(null);
 
     try {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
       const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
       const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+      // Create garment record
       const { data: garmentData, error: insertError } = await supabase
         .from("garments")
         .insert({
@@ -198,7 +339,18 @@ export default function Home() {
         .select()
         .single();
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        console.error("Insert error:", insertError);
+        throw new Error(
+          `Failed to create garment record: ${insertError.message}`
+        );
+      }
+
+      if (!garmentData) {
+        throw new Error("No data returned from garment creation");
+      }
+
+      setGarmentRecordID(garmentData.id);
 
       const token = getToken();
       if (!token) throw new Error("No authentication token found");
@@ -211,7 +363,7 @@ export default function Home() {
         },
         body: JSON.stringify({
           frontViewBase64: frontPreview,
-          backViewBase64: backPreview || "",
+          generatedImageType: "front",
           mimeType,
           garmentType,
         }),
@@ -242,21 +394,295 @@ export default function Home() {
       }
 
       if (result.success) {
-        setGeneratedViews({
-          front: result.generatedFront,
-          side: result.generatedSide,
-          back: result.generatedBack || "",
+        setGeneratedFrontViews({
+          front1: result.generatedFront1,
+          front2: result.generatedFront2,
+          front3: result.generatedFront3,
         });
+        setCredits(result.remainingCredits);
+
+        // Update Supabase garment record
+        if (garmentData?.id) {
+          try {
+            const { data: updatedData, error: updateError } = await supabase
+              .from("garments")
+              .update({
+                generated_front_url: result.generatedFront1,
+                status: "completed",
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", garmentData.id)
+              .select()
+              .single();
+
+            if (updateError) {
+              console.error("Supabase update error:", updateError);
+              // Log detailed error information
+              console.error("Error details:", {
+                code: updateError.code,
+                message: updateError.message,
+                details: updateError.details,
+                hint: updateError.hint,
+              });
+            } else {
+              console.log("Successfully updated garment record:", updatedData);
+            }
+          } catch (updateException: any) {
+            console.error("Exception during update:", updateException);
+          }
+        }
+
+        toast({
+          title: "Success!",
+          description: `Front Views generated successfully. ${result.remainingCredits} credits remaining.`,
+        });
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error: any) {
+      console.error("Error:", error);
+      toast({
+        title: "Generation Failed",
+        description:
+          error.message || "Failed to generate 3D views. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleRegenerateImage = async (
+    viewType: "front" | "side" | "back",
+    index: number
+  ) => {
+    if (!user) {
+      toast({
+        title: "Authentication Required",
+        description: "Please login to regenerate images",
+        variant: "destructive",
+      });
+      router.push("/auth");
+      return;
+    }
+
+    if (credits <= 0) {
+      toast({
+        title: "Insufficient Credits",
+        description: "Please purchase credits to continue",
+        variant: "destructive",
+      });
+      router.push("/pricing");
+      return;
+    }
+
+    const imageKey = `${viewType}${index}`;
+    setRegeneratingImage(imageKey);
+
+    try {
+      const token = getToken();
+      if (!token) throw new Error("No authentication token found");
+
+      let requestBody: any = {
+        generatedImageType: viewType,
+        mimeType,
+        garmentType,
+      };
+
+      if (viewType === "front") {
+        requestBody.frontViewBase64 = frontPreview;
+      } else {
+        // For side and back, use the selected front view
+        const frontKey =
+          `front${selectedFrontIndex}` as keyof typeof generatedFrontViews;
+        if (generatedFrontViews && generatedFrontViews[frontKey]) {
+          requestBody.selectedFrontViewBase64 = generatedFrontViews[frontKey];
+          if (viewType === "back" && backPreview) {
+            requestBody.backViewBase64 = backPreview;
+          }
+        }
+      }
+
+      const response = await fetch("/api/generate-views", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          toast({
+            title: "Session Expired",
+            description: "Please login again",
+            variant: "destructive",
+          });
+          router.push("/auth");
+          return;
+        }
+        if (response.status === 403) {
+          toast({
+            title: "Insufficient Credits",
+            description: result.error || "Please purchase more credits",
+            variant: "destructive",
+          });
+          router.push("/pricing");
+          return;
+        }
+        throw new Error(result.error || "Failed to regenerate image");
+      }
+
+      if (result.success) {
+        // Update the specific image based on type
+        if (viewType === "front") {
+          setGeneratedFrontViews((prev) => ({
+            ...prev!,
+            [`front${index}`]:
+              result.generatedFront1 ||
+              result.generatedFront2 ||
+              result.generatedFront3,
+          }));
+        } else if (viewType === "side") {
+          setGeneratedSideViews((prev) => ({
+            ...prev!,
+            [`side${index}`]: result.generatedSide,
+          }));
+        } else if (viewType === "back") {
+          setGeneratedBackViews((prev) => ({
+            ...prev!,
+            [`back${index}`]: result.generatedBack,
+          }));
+        }
+
+        setCredits(result.remainingCredits);
+        toast({
+          title: "Success!",
+          description: `Image regenerated successfully. ${result.remainingCredits} credits remaining.`,
+        });
+      }
+    } catch (error: any) {
+      console.error("Error:", error);
+      toast({
+        title: "Regeneration Failed",
+        description:
+          error.message || "Failed to regenerate image. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setRegeneratingImage(null);
+    }
+  };
+
+  const handleGenerateSideBackViews = async (
+    frontBase64: string,
+    index: number
+  ) => {
+    if (!garmentType || !generatedFrontViews) {
+      alert("Please generate front view first");
+      return;
+    }
+
+    setSelectedFrontIndex(index);
+
+    // Side and back view generation logic here
+    if (!user) {
+      toast({
+        title: "Authentication Required",
+        description: "Please login to generate views",
+        variant: "destructive",
+      });
+      router.push("/auth");
+      return;
+    }
+
+    if (credits <= 0) {
+      toast({
+        title: "Insufficient Credits",
+        description: "Please purchase credits to continue",
+        variant: "destructive",
+      });
+      router.push("/pricing");
+      return;
+    }
+
+    setIsProcessing(true);
+    setGeneratedSideViews(null);
+    setGeneratedBackViews(null);
+
+    try {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+      const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+      const token = getToken();
+      if (!token) throw new Error("No authentication token found");
+
+      const response = await fetch("/api/generate-views", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          selectedFrontViewBase64: frontBase64,
+          backViewBase64: backPreview || null,
+          generatedImageType: "side-back",
+          mimeType,
+          garmentType,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          toast({
+            title: "Session Expired",
+            description: "Please login again",
+            variant: "destructive",
+          });
+          router.push("/auth");
+          return;
+        }
+        if (response.status === 403) {
+          toast({
+            title: "Insufficient Credits",
+            description: result.error || "Please purchase more credits",
+            variant: "destructive",
+          });
+          router.push("/pricing");
+          return;
+        }
+        throw new Error(result.error || "Failed to generate views");
+      }
+
+      if (result.success) {
+        // Update side views based on index
+        const newSideViews = { side1: "", side2: "", side3: "" };
+        newSideViews[`side${index}` as keyof typeof newSideViews] =
+          result.generatedSide || "";
+        setGeneratedSideViews(newSideViews);
+
+        // Update back views if available
+        if (result.generatedBack) {
+          const newBackViews = { back1: "", back2: "", back3: "" };
+          newBackViews[`back${index}` as keyof typeof newBackViews] =
+            result.generatedBack || "";
+          setGeneratedBackViews(newBackViews);
+        }
         setCredits(result.remainingCredits);
         await supabase
           .from("garments")
           .update({
-            generated_front_url: result.generatedFront,
             generated_side_url: result.generatedSide,
-            generated_back_url: result.generatedBack || null,
+            generated_back_url: result.generatedBack,
             status: "completed",
           })
-          .eq("id", garmentData.id);
+          .eq("id", garmentRecordID);
         toast({
           title: "Success!",
           description: `Views generated successfully. ${result.remainingCredits} credits remaining.`,
@@ -276,6 +702,236 @@ export default function Home() {
       setIsProcessing(false);
     }
   };
+
+  // const handleGenerateSideView = async (frontBase64: string) => {
+  //   if (!garmentType || !generatedFrontViews) {
+  //     alert("Please generate front view first");
+  //     return;
+  //   }
+
+  //   // Side view generation logic here
+  //   if (!user) {
+  //     toast({
+  //       title: "Authentication Required",
+  //       description: "Please login to generate views",
+  //       variant: "destructive",
+  //     });
+  //     router.push("/auth");
+  //     return;
+  //   }
+
+  //   if (credits <= 0) {
+  //     toast({
+  //       title: "Insufficient Credits",
+  //       description: "Please purchase credits to continue",
+  //       variant: "destructive",
+  //     });
+  //     router.push("/pricing");
+  //     return;
+  //   }
+
+  //   setIsProcessing(true);
+  //   setGeneratedSideViews(null);
+
+  //   try {
+  //     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  //     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+  //     const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+  //     const token = getToken();
+  //     if (!token) throw new Error("No authentication token found");
+
+  //     const response = await fetch("/api/generate-views", {
+  //       method: "POST",
+  //       headers: {
+  //         "Content-Type": "application/json",
+  //         Authorization: `Bearer ${token}`,
+  //       },
+  //       body: JSON.stringify({
+  //         selectedFrontViewBase64: frontBase64,
+  //         generatedImageType: "side",
+  //         mimeType,
+  //         garmentType,
+  //       }),
+  //     });
+
+  //     const result = await response.json();
+
+  //     if (!response.ok) {
+  //       if (response.status === 401) {
+  //         toast({
+  //           title: "Session Expired",
+  //           description: "Please login again",
+  //           variant: "destructive",
+  //         });
+  //         router.push("/auth");
+  //         return;
+  //       }
+  //       if (response.status === 403) {
+  //         toast({
+  //           title: "Insufficient Credits",
+  //           description: result.error || "Please purchase more credits",
+  //           variant: "destructive",
+  //         });
+  //         router.push("/pricing");
+  //         return;
+  //       }
+  //       throw new Error(result.error || "Failed to generate views");
+  //     }
+
+  //     if (result.success) {
+  //       setGeneratedSideViews({
+  //         side1: result.generatedSide1 || "",
+  //         side2: result.generatedSide2 || "",
+  //         side3: result.generatedSide3 || "",
+  //       });
+  //       setCredits(result.remainingCredits);
+  //       await supabase
+  //         .from("garments")
+  //         .update({
+  //           generated_side_url:
+  //             (result.generatedSide1 || "") +
+  //             "," +
+  //             (result.generatedSide2 || "") +
+  //             "," +
+  //             (result.generatedSide3 || ""),
+  //           status: !backView ? "completed" : "processing",
+  //         })
+  //         .eq("id", garmentRecord.id);
+  //       toast({
+  //         title: "Success!",
+  //         description: `Side Views generated successfully. ${result.remainingCredits} credits remaining.`,
+  //       });
+  //     } else {
+  //       throw new Error(result.error);
+  //     }
+  //   } catch (error: any) {
+  //     console.error("Error:", error);
+  //     toast({
+  //       title: "Generation Failed",
+  //       description:
+  //         error.message || "Failed to generate 3D views. Please try again.",
+  //       variant: "destructive",
+  //     });
+  //   } finally {
+  //     setIsProcessing(false);
+  //   }
+  // };
+
+  // const handleGenerateBackView = async (frontBase64: string) => {
+  //   if (!garmentType || !generatedFrontViews) {
+  //     alert("Please generate front view first");
+  //     return;
+  //   }
+
+  //   // back view generation logic here
+  //   if (!user) {
+  //     toast({
+  //       title: "Authentication Required",
+  //       description: "Please login to generate views",
+  //       variant: "destructive",
+  //     });
+  //     router.push("/auth");
+  //     return;
+  //   }
+
+  //   if (credits <= 0) {
+  //     toast({
+  //       title: "Insufficient Credits",
+  //       description: "Please purchase credits to continue",
+  //       variant: "destructive",
+  //     });
+  //     router.push("/pricing");
+  //     return;
+  //   }
+
+  //   setIsProcessing(true);
+  //   setGeneratedBackViews(null);
+
+  //   try {
+  //     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  //     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+  //     const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+  //     const token = getToken();
+  //     if (!token) throw new Error("No authentication token found");
+
+  //     const response = await fetch("/api/generate-views", {
+  //       method: "POST",
+  //       headers: {
+  //         "Content-Type": "application/json",
+  //         Authorization: `Bearer ${token}`,
+  //       },
+  //       body: JSON.stringify({
+  //         selectedFrontViewBase64: frontBase64,
+  //         generatedImageType: "back",
+  //         mimeType,
+  //         garmentType,
+  //       }),
+  //     });
+
+  //     const result = await response.json();
+
+  //     if (!response.ok) {
+  //       if (response.status === 401) {
+  //         toast({
+  //           title: "Session Expired",
+  //           description: "Please login again",
+  //           variant: "destructive",
+  //         });
+  //         router.push("/auth");
+  //         return;
+  //       }
+  //       if (response.status === 403) {
+  //         toast({
+  //           title: "Insufficient Credits",
+  //           description: result.error || "Please purchase more credits",
+  //           variant: "destructive",
+  //         });
+  //         router.push("/pricing");
+  //         return;
+  //       }
+  //       throw new Error(result.error || "Failed to generate views");
+  //     }
+
+  //     if (result.success) {
+  //       setGeneratedBackViews({
+  //         back1: result.generatedBack1 || "",
+  //         back2: result.generatedBack2 || "",
+  //         back3: result.generatedBack3 || "",
+  //       });
+  //       setCredits(result.remainingCredits);
+  //       await supabase
+  //         .from("garments")
+  //         .update({
+  //           generated_back_url:
+  //             (result.generatedBack1 || "") +
+  //             "," +
+  //             (result.generatedBack2 || "") +
+  //             "," +
+  //             (result.generatedBack3 || ""),
+  //           status: "completed",
+  //         })
+  //         .eq("id", garmentRecord.id);
+  //       toast({
+  //         title: "Success!",
+  //         description: `Back Views generated successfully. ${result.remainingCredits} credits remaining.`,
+  //       });
+  //     } else {
+  //       throw new Error(result.error);
+  //     }
+  //   } catch (error: any) {
+  //     console.error("Error:", error);
+  //     toast({
+  //       title: "Generation Failed",
+  //       description:
+  //         error.message || "Failed to generate 3D views. Please try again.",
+  //       variant: "destructive",
+  //     });
+  //   } finally {
+  //     setIsProcessing(false);
+  //   }
+  // };
 
   const downloadImage = (url: string, name: string) => {
     const link = document.createElement("a");
@@ -346,7 +1002,7 @@ export default function Home() {
             <Alert className='bg-blue-50 border-blue-200'>
               <AlertCircle className='h-4 w-4 text-blue-600' />
               <AlertDescription className='text-blue-800'>
-                <strong>Please login to generate views.</strong> New users get 3
+                <strong>Please login to generate views.</strong> New users get 9
                 free credits!
               </AlertDescription>
             </Alert>
@@ -382,6 +1038,12 @@ export default function Home() {
                     <SelectItem value='leggings'>Leggings</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className=''>
+                <span className='text-cyan-800 text-sm border-cyan-100 border-2 rounded-xl p-2'>
+                  "FIRST GENERATION MIGHT NOT GIVE YOU THE DESIRED RESULT, TRY
+                  REGENERATING"
+                </span>
               </div>
               <div className='text-red-800 text-sm'>
                 Image file size must be less than 12 MB. Allowed formats: JPEG,
@@ -456,7 +1118,7 @@ export default function Home() {
                 </div>
               </div>
               <Button
-                onClick={handleGenerate}
+                onClick={handleGenerateFrontView}
                 disabled={!garmentType || !frontView || isProcessing || !user}
                 className='w-full h-12 text-lg'
                 size='lg'
@@ -476,64 +1138,534 @@ export default function Home() {
               </Button>
             </CardContent>
           </Card>
-          {generatedViews && (
+          {generatedFrontViews && (
             <Card className='mt-8 shadow-xl border-slate-200'>
               <CardHeader>
                 <CardTitle>Generated 3D Views</CardTitle>
                 <CardDescription>
-                  Front, side, and back views of your garment
+                  Select a front view to generate side and back views
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
-                  {[
-                    {
-                      key: "front",
-                      title: "Front View",
-                      src: generatedViews.front,
-                    },
-                    {
-                      key: "side",
-                      title: "Side View",
-                      src: generatedViews.side,
-                    },
-                    {
-                      key: "back",
-                      title: "Back View",
-                      src: generatedViews.back,
-                    },
-                  ].map(({ key, title, src }) => (
-                    <div key={key} className='space-y-2'>
+                <div className='space-y-6'>
+                  {/* Row 1 - Front View 1 */}
+                  <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
+                    {/* Front View 1 */}
+                    <div className='space-y-2'>
                       <h3 className='text-sm font-semibold text-slate-700 text-center'>
-                        {title}
+                        Front View 1
                       </h3>
                       <div className='bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center relative'>
-                        {src ? (
+                        {generatedFrontViews.front1 ? (
                           <>
                             <Image
                               width={500}
                               height={500}
-                              src={src}
-                              alt={title}
+                              src={generatedFrontViews.front1}
+                              alt='Front View 1'
                               className='max-w-full h-auto'
                             />
-                            <Button
-                              onClick={() =>
-                                downloadImage(src, `${key}-view.png`)
-                              }
-                              className='absolute bottom-2 right-2'
-                              size='sm'
-                            >
-                              <Download className='w-4 h-4 mr-2' />
-                              Download
-                            </Button>
+                            <div className='absolute top-2 right-2 flex flex-col gap-2'>
+                              <Button
+                                onClick={() =>
+                                  handleRegenerateImage("front", 1)
+                                }
+                                disabled={regeneratingImage === "front1"}
+                                variant='secondary'
+                                size='sm'
+                              >
+                                {regeneratingImage === "front1" ? (
+                                  <Loader2 className='w-4 h-4 animate-spin' />
+                                ) : (
+                                  "Regenerate"
+                                )}
+                              </Button>
+                            </div>
+                            <div className='absolute bottom-2 left-2 right-2 flex gap-2'>
+                              <Button
+                                onClick={() =>
+                                  handleGenerateSideBackViews(
+                                    generatedFrontViews.front1,
+                                    1
+                                  )
+                                }
+                                disabled={
+                                  isProcessing || selectedFrontIndex === 1
+                                }
+                                className='flex-1'
+                                size='sm'
+                              >
+                                {selectedFrontIndex === 1 && isProcessing ? (
+                                  <Loader2 className='w-4 h-4 animate-spin mr-2' />
+                                ) : null}
+                                {selectedFrontIndex === 1
+                                  ? "Selected"
+                                  : "Generate Side & Back"}
+                              </Button>
+                              <Button
+                                onClick={() =>
+                                  downloadImage(
+                                    generatedFrontViews.front1,
+                                    "front1-view.png"
+                                  )
+                                }
+                                variant='outline'
+                                size='sm'
+                              >
+                                <Download className='w-4 h-4' />
+                              </Button>
+                            </div>
                           </>
                         ) : (
                           <span className='text-slate-400'>No image</span>
                         )}
                       </div>
                     </div>
-                  ))}
+
+                    {/* Side View 1 */}
+                    <div className='space-y-2'>
+                      <h3 className='text-sm font-semibold text-slate-700 text-center'>
+                        Side View 1
+                      </h3>
+                      <div className='bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center relative'>
+                        {generatedSideViews?.side1 ? (
+                          <>
+                            <Image
+                              width={500}
+                              height={500}
+                              src={generatedSideViews.side1}
+                              alt='Side View 1'
+                              className='max-w-full h-auto'
+                            />
+                            <div className='absolute top-2 right-2 flex flex-col gap-2'>
+                              <Button
+                                onClick={() => handleRegenerateImage("side", 1)}
+                                disabled={regeneratingImage === "side1"}
+                                variant='secondary'
+                                size='sm'
+                              >
+                                {regeneratingImage === "side1" ? (
+                                  <Loader2 className='w-4 h-4 animate-spin' />
+                                ) : (
+                                  "Regenerate"
+                                )}
+                              </Button>
+                            </div>
+                            <Button
+                              onClick={() =>
+                                downloadImage(
+                                  generatedSideViews.side1,
+                                  "side1-view.png"
+                                )
+                              }
+                              className='absolute bottom-2 right-2'
+                              variant='outline'
+                              size='sm'
+                            >
+                              <Download className='w-4 h-4' />
+                            </Button>
+                          </>
+                        ) : (
+                          <span className='text-slate-400'></span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Back View 1 */}
+                    <div className='space-y-2'>
+                      <h3 className='text-sm font-semibold text-slate-700 text-center'>
+                        Back View 1
+                      </h3>
+                      <div className='bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center relative'>
+                        {generatedBackViews?.back1 ? (
+                          <>
+                            <Image
+                              width={500}
+                              height={500}
+                              src={generatedBackViews.back1}
+                              alt='Back View 1'
+                              className='max-w-full h-auto'
+                            />
+                            <div className='absolute top-2 right-2 flex flex-col gap-2'>
+                              <Button
+                                onClick={() => handleRegenerateImage("back", 1)}
+                                disabled={regeneratingImage === "back1"}
+                                variant='secondary'
+                                size='sm'
+                              >
+                                {regeneratingImage === "back1" ? (
+                                  <Loader2 className='w-4 h-4 animate-spin' />
+                                ) : (
+                                  "Regenerate"
+                                )}
+                              </Button>
+                            </div>
+                            <Button
+                              onClick={() =>
+                                downloadImage(
+                                  generatedBackViews.back1,
+                                  "back1-view.png"
+                                )
+                              }
+                              className='absolute bottom-2 right-2'
+                              variant='outline'
+                              size='sm'
+                            >
+                              <Download className='w-4 h-4' />
+                            </Button>
+                          </>
+                        ) : (
+                          <span className='text-slate-400'></span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Row 2 - Front View 2 */}
+                  <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
+                    {/* Front View 2 */}
+                    <div className='space-y-2'>
+                      <h3 className='text-sm font-semibold text-slate-700 text-center'>
+                        Front View 2
+                      </h3>
+                      <div className='bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center relative'>
+                        {generatedFrontViews.front2 ? (
+                          <>
+                            <Image
+                              width={500}
+                              height={500}
+                              src={generatedFrontViews.front2}
+                              alt='Front View 2'
+                              className='max-w-full h-auto'
+                            />
+                            <div className='absolute top-2 right-2 flex flex-col gap-2'>
+                              <Button
+                                onClick={() =>
+                                  handleRegenerateImage("front", 2)
+                                }
+                                disabled={regeneratingImage === "front2"}
+                                variant='secondary'
+                                size='sm'
+                              >
+                                {regeneratingImage === "front2" ? (
+                                  <Loader2 className='w-4 h-4 animate-spin' />
+                                ) : (
+                                  "Regenerate"
+                                )}
+                              </Button>
+                            </div>
+                            <div className='absolute bottom-2 left-2 right-2 flex gap-2'>
+                              <Button
+                                onClick={() =>
+                                  handleGenerateSideBackViews(
+                                    generatedFrontViews.front2,
+                                    2
+                                  )
+                                }
+                                disabled={
+                                  isProcessing || selectedFrontIndex === 2
+                                }
+                                className='flex-1'
+                                size='sm'
+                              >
+                                {selectedFrontIndex === 2 && isProcessing ? (
+                                  <Loader2 className='w-4 h-4 animate-spin mr-2' />
+                                ) : null}
+                                {selectedFrontIndex === 2
+                                  ? "Selected"
+                                  : "Generate Side & Back"}
+                              </Button>
+                              <Button
+                                onClick={() =>
+                                  downloadImage(
+                                    generatedFrontViews.front2,
+                                    "front2-view.png"
+                                  )
+                                }
+                                variant='outline'
+                                size='sm'
+                              >
+                                <Download className='w-4 h-4' />
+                              </Button>
+                            </div>
+                          </>
+                        ) : (
+                          <span className='text-slate-400'>No image</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Side View 2 */}
+                    <div className='space-y-2'>
+                      <h3 className='text-sm font-semibold text-slate-700 text-center'>
+                        Side View 2
+                      </h3>
+                      <div className='bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center relative'>
+                        {generatedSideViews?.side2 ? (
+                          <>
+                            <Image
+                              width={500}
+                              height={500}
+                              src={generatedSideViews.side2}
+                              alt='Side View 2'
+                              className='max-w-full h-auto'
+                            />
+                            <div className='absolute top-2 right-2 flex flex-col gap-2'>
+                              <Button
+                                onClick={() => handleRegenerateImage("side", 2)}
+                                disabled={regeneratingImage === "side2"}
+                                variant='secondary'
+                                size='sm'
+                              >
+                                {regeneratingImage === "side2" ? (
+                                  <Loader2 className='w-4 h-4 animate-spin' />
+                                ) : (
+                                  "Regenerate"
+                                )}
+                              </Button>
+                            </div>
+                            <Button
+                              onClick={() =>
+                                downloadImage(
+                                  generatedSideViews.side2,
+                                  "side2-view.png"
+                                )
+                              }
+                              className='absolute bottom-2 right-2'
+                              variant='outline'
+                              size='sm'
+                            >
+                              <Download className='w-4 h-4' />
+                            </Button>
+                          </>
+                        ) : (
+                          <span className='text-slate-400'></span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Back View 2 */}
+                    <div className='space-y-2'>
+                      <h3 className='text-sm font-semibold text-slate-700 text-center'>
+                        Back View 2
+                      </h3>
+                      <div className='bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center relative'>
+                        {generatedBackViews?.back2 ? (
+                          <>
+                            <Image
+                              width={500}
+                              height={500}
+                              src={generatedBackViews.back2}
+                              alt='Back View 2'
+                              className='max-w-full h-auto'
+                            />
+                            <div className='absolute top-2 right-2 flex flex-col gap-2'>
+                              <Button
+                                onClick={() => handleRegenerateImage("back", 2)}
+                                disabled={regeneratingImage === "back2"}
+                                variant='secondary'
+                                size='sm'
+                              >
+                                {regeneratingImage === "back2" ? (
+                                  <Loader2 className='w-4 h-4 animate-spin' />
+                                ) : (
+                                  "Regenerate"
+                                )}
+                              </Button>
+                            </div>
+                            <Button
+                              onClick={() =>
+                                downloadImage(
+                                  generatedBackViews.back2,
+                                  "back2-view.png"
+                                )
+                              }
+                              className='absolute bottom-2 right-2'
+                              variant='outline'
+                              size='sm'
+                            >
+                              <Download className='w-4 h-4' />
+                            </Button>
+                          </>
+                        ) : (
+                          <span className='text-slate-400'></span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Row 3 - Front View 3 */}
+                  <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
+                    {/* Front View 3 */}
+                    <div className='space-y-2'>
+                      <h3 className='text-sm font-semibold text-slate-700 text-center'>
+                        Front View 3
+                      </h3>
+                      <div className='bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center relative'>
+                        {generatedFrontViews.front3 ? (
+                          <>
+                            <Image
+                              width={500}
+                              height={500}
+                              src={generatedFrontViews.front3}
+                              alt='Front View 3'
+                              className='max-w-full h-auto'
+                            />
+                            <div className='absolute top-2 right-2 flex flex-col gap-2'>
+                              <Button
+                                onClick={() =>
+                                  handleRegenerateImage("front", 3)
+                                }
+                                disabled={regeneratingImage === "front3"}
+                                variant='secondary'
+                                size='sm'
+                              >
+                                {regeneratingImage === "front3" ? (
+                                  <Loader2 className='w-4 h-4 animate-spin' />
+                                ) : (
+                                  "Regenerate"
+                                )}
+                              </Button>
+                            </div>
+                            <div className='absolute bottom-2 left-2 right-2 flex gap-2'>
+                              <Button
+                                onClick={() =>
+                                  handleGenerateSideBackViews(
+                                    generatedFrontViews.front3,
+                                    3
+                                  )
+                                }
+                                disabled={
+                                  isProcessing || selectedFrontIndex === 3
+                                }
+                                className='flex-1'
+                                size='sm'
+                              >
+                                {selectedFrontIndex === 3 && isProcessing ? (
+                                  <Loader2 className='w-4 h-4 animate-spin mr-2' />
+                                ) : null}
+                                {selectedFrontIndex === 3
+                                  ? "Selected"
+                                  : "Generate Side & Back"}
+                              </Button>
+                              <Button
+                                onClick={() =>
+                                  downloadImage(
+                                    generatedFrontViews.front3,
+                                    "front3-view.png"
+                                  )
+                                }
+                                variant='outline'
+                                size='sm'
+                              >
+                                <Download className='w-4 h-4' />
+                              </Button>
+                            </div>
+                          </>
+                        ) : (
+                          <span className='text-slate-400'>No image</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Side View 3 */}
+                    <div className='space-y-2'>
+                      <h3 className='text-sm font-semibold text-slate-700 text-center'>
+                        Side View 3
+                      </h3>
+                      <div className='bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center relative'>
+                        {generatedSideViews?.side3 ? (
+                          <>
+                            <Image
+                              width={500}
+                              height={500}
+                              src={generatedSideViews.side3}
+                              alt='Side View 3'
+                              className='max-w-full h-auto'
+                            />
+                            <div className='absolute top-2 right-2 flex flex-col gap-2'>
+                              <Button
+                                onClick={() => handleRegenerateImage("side", 3)}
+                                disabled={regeneratingImage === "side3"}
+                                variant='secondary'
+                                size='sm'
+                              >
+                                {regeneratingImage === "side3" ? (
+                                  <Loader2 className='w-4 h-4 animate-spin' />
+                                ) : (
+                                  "Regenerate"
+                                )}
+                              </Button>
+                            </div>
+                            <Button
+                              onClick={() =>
+                                downloadImage(
+                                  generatedSideViews.side3,
+                                  "side3-view.png"
+                                )
+                              }
+                              className='absolute bottom-2 right-2'
+                              variant='outline'
+                              size='sm'
+                            >
+                              <Download className='w-4 h-4' />
+                            </Button>
+                          </>
+                        ) : (
+                          <span className='text-slate-400'></span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Back View 3 */}
+                    <div className='space-y-2'>
+                      <h3 className='text-sm font-semibold text-slate-700 text-center'>
+                        Back View 3
+                      </h3>
+                      <div className='bg-white border-2 border-slate-200 rounded-lg p-4 min-h-[300px] flex items-center justify-center relative'>
+                        {generatedBackViews?.back3 ? (
+                          <>
+                            <Image
+                              width={500}
+                              height={500}
+                              src={generatedBackViews.back3}
+                              alt='Back View 3'
+                              className='max-w-full h-auto'
+                            />
+                            <div className='absolute top-2 right-2 flex flex-col gap-2'>
+                              <Button
+                                onClick={() => handleRegenerateImage("back", 3)}
+                                disabled={regeneratingImage === "back3"}
+                                variant='secondary'
+                                size='sm'
+                              >
+                                {regeneratingImage === "back3" ? (
+                                  <Loader2 className='w-4 h-4 animate-spin' />
+                                ) : (
+                                  "Regenerate"
+                                )}
+                              </Button>
+                            </div>
+                            <Button
+                              onClick={() =>
+                                downloadImage(
+                                  generatedBackViews.back3,
+                                  "back3-view.png"
+                                )
+                              }
+                              className='absolute bottom-2 right-2'
+                              variant='outline'
+                              size='sm'
+                            >
+                              <Download className='w-4 h-4' />
+                            </Button>
+                          </>
+                        ) : (
+                          <span className='text-slate-400'></span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>

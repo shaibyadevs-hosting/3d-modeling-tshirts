@@ -105,7 +105,7 @@ export default function AuthPage() {
       toast({
         title: "Success",
         description:
-          "Account created successfully! You have 3 free credits. Please login.",
+          "Account created successfully! You have 9 free credits. Please login.",
       });
       // Switch to login tab
       setLoginEmail(signupEmail);
