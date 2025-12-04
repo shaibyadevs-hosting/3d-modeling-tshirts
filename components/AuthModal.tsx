@@ -29,35 +29,35 @@ export default function AuthModal({ onClose, onLogin }: AuthModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-lg">
+    <div className='fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50'>
+      <div className='bg-white p-6 rounded-lg'>
         <h2>{isSignup ? "Signup" : "Login"}</h2>
         <input
-          placeholder="Email"
+          placeholder='Email'
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="block mb-2 p-2 border"
+          className='block mb-2 p-2 border'
         />
         <input
-          type="password"
-          placeholder="Password"
+          type='password'
+          placeholder='Password'
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="block mb-2 p-2 border"
+          className='block mb-2 p-2 border'
         />
         <button
           onClick={handleSubmit}
-          className="bg-blue-500 text-white px-4 py-2 mr-2"
+          className='bg-blue-500 text-white px-4 py-2 mr-2'
         >
           {isSignup ? "Signup" : "Login"}
         </button>
         <button
           onClick={() => setIsSignup(!isSignup)}
-          className="text-blue-500"
+          className='text-blue-500'
         >
           Switch to {isSignup ? "Login" : "Signup"}
         </button>
-        <button onClick={onClose} className="ml-2 text-gray-500">
+        <button onClick={onClose} className='ml-2 text-gray-500'>
           Close
         </button>
       </div>

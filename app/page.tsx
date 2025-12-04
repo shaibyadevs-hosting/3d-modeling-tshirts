@@ -27,6 +27,7 @@ import {
   Download,
   AlertCircle,
   RefreshCw,
+  X,
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import Image from "next/image";
@@ -34,7 +35,6 @@ import Link from "next/link";
 import { getCurrentUser, signOut, getToken } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { set } from "date-fns";
 
 export default function Home() {
   const router = useRouter();
@@ -42,6 +42,7 @@ export default function Home() {
 
   const [garmentType, setGarmentType] = useState("");
   const [garmentRecordID, setGarmentRecordID] = useState<string | null>(null);
+  const [generationId, setGenerationId] = useState<string | null>(null);
   const [frontView, setFrontView] = useState<File | null>(null);
   const [backView, setBackView] = useState<File | null>(null);
   const [mimeType, setMimeType] = useState<string>("");
@@ -73,6 +74,80 @@ export default function Home() {
   const [credits, setCredits] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Helper function to update generation in database
+  const updateGenerationInDB = async (updates: any) => {
+    if (!generationId) return;
+
+    try {
+      const token = getToken();
+      if (!token) return;
+
+      await fetch("/api/generations", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          id: generationId,
+          ...updates,
+        }),
+      });
+    } catch (error) {
+      console.error("Failed to update generation in DB:", error);
+    }
+  };
+
+  // Helper function to save new generation to database
+  const saveGenerationToDB = async (data: any) => {
+    try {
+      const token = getToken();
+      if (!token) return null;
+
+      const response = await fetch("/api/generations", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(data),
+      });
+
+      const result = await response.json();
+      if (result.success && result.generation) {
+        setGenerationId(result.generation.id);
+        return result.generation.id;
+      }
+      return null;
+    } catch (error) {
+      console.error("Failed to save generation to DB:", error);
+      return null;
+    }
+  };
+
+  // Helper function to load generation from database
+  const loadGenerationFromDB = async (id: string) => {
+    try {
+      const token = getToken();
+      if (!token) return null;
+
+      const response = await fetch(`/api/generations?id=${id}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const result = await response.json();
+      if (result.success && result.generation) {
+        return result.generation;
+      }
+      return null;
+    } catch (error) {
+      console.error("Failed to load generation from DB:", error);
+      return null;
+    }
+  };
+
   // Utility to check if we can store in sessionStorage
   const canStoreInSession = (key: string, value: string): boolean => {
     try {
@@ -87,116 +162,87 @@ export default function Home() {
 
   useEffect(() => {
     loadUserData();
-    loadSessionData();
   }, []);
 
-  // Load generated images from sessionStorage on mount
-  const loadSessionData = () => {
-    if (typeof window !== "undefined") {
-      try {
-        const savedFrontViews = sessionStorage.getItem("generatedFrontViews");
-        const savedSideViews = sessionStorage.getItem("generatedSideViews");
-        const savedBackViews = sessionStorage.getItem("generatedBackViews");
-        const savedSelectedIndex = sessionStorage.getItem("selectedFrontIndex");
-
-        if (savedFrontViews)
-          setGeneratedFrontViews(JSON.parse(savedFrontViews));
-        if (savedSideViews) setGeneratedSideViews(JSON.parse(savedSideViews));
-        if (savedBackViews) setGeneratedBackViews(JSON.parse(savedBackViews));
-        if (savedSelectedIndex)
-          setSelectedFrontIndex(JSON.parse(savedSelectedIndex));
-      } catch (error) {
-        console.error("Failed to load session data:", error);
-        // Clear corrupted data
-        sessionStorage.clear();
-      }
-    }
-  };
-
-  // Save generated images to sessionStorage whenever they change
-  // Using smart storage management to prevent quota exceeded errors
+  // Load the most recent generation from database when user is loaded
   useEffect(() => {
-    if (typeof window !== "undefined" && generatedFrontViews) {
-      const dataString = JSON.stringify(generatedFrontViews);
-      try {
-        sessionStorage.setItem("generatedFrontViews", dataString);
-      } catch (error: any) {
-        if (error.name === "QuotaExceededError") {
-          console.warn(
-            "SessionStorage quota exceeded. Clearing side and back views..."
-          );
-          // Clear less critical data first (side and back views)
-          sessionStorage.removeItem("generatedSideViews");
-          sessionStorage.removeItem("generatedBackViews");
-          try {
-            sessionStorage.setItem("generatedFrontViews", dataString);
-          } catch (retryError) {
-            console.error(
-              "Still cannot save. Storage full even after cleanup."
-            );
-            toast({
-              title: "Storage Warning",
-              description: "Cannot save all images. Consider downloading them.",
-              variant: "destructive",
-            });
+    if (user) {
+      loadLatestGeneration();
+    }
+  }, [user]);
+
+  // Load the latest generation from database
+  const loadLatestGeneration = async () => {
+    try {
+      const token = getToken();
+      if (!token) return;
+
+      const response = await fetch("/api/generations?limit=1", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const result = await response.json();
+      if (
+        result.success &&
+        result.generations &&
+        result.generations.length > 0
+      ) {
+        const latestGen = result.generations[0];
+
+        // Only load if it's recent (created within last hour) and not completed
+        const createdAt = new Date(latestGen.created_at);
+        const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+
+        if (createdAt > hourAgo) {
+          // Load the full generation data
+          const fullGen = await loadGenerationFromDB(latestGen.id);
+          if (fullGen) {
+            restoreGenerationState(fullGen);
           }
         }
       }
+    } catch (error) {
+      console.error("Failed to load latest generation:", error);
     }
-  }, [generatedFrontViews]);
+  };
 
-  useEffect(() => {
-    if (typeof window !== "undefined" && generatedSideViews) {
-      const dataString = JSON.stringify(generatedSideViews);
-      try {
-        sessionStorage.setItem("generatedSideViews", dataString);
-      } catch (error: any) {
-        if (error.name === "QuotaExceededError") {
-          console.warn("Cannot save side views - storage quota exceeded");
-          // Notify user to download images
-          toast({
-            title: "Storage Full",
-            description:
-              "Please download your images. They won't persist after refresh.",
-            variant: "destructive",
-          });
-        }
-      }
-    }
-  }, [generatedSideViews]);
+  // Restore state from a generation object
+  const restoreGenerationState = (gen: any) => {
+    setGenerationId(gen.id);
+    setGarmentType(gen.garment_type || "");
+    setFrontPreview(gen.front_view_url || "");
+    setBackPreview(gen.back_view_url || "");
 
-  useEffect(() => {
-    if (typeof window !== "undefined" && generatedBackViews) {
-      const dataString = JSON.stringify(generatedBackViews);
-      try {
-        sessionStorage.setItem("generatedBackViews", dataString);
-      } catch (error: any) {
-        if (error.name === "QuotaExceededError") {
-          console.warn("Cannot save back views - storage quota exceeded");
-          // Notify user to download images
-          toast({
-            title: "Storage Full",
-            description:
-              "Please download your images. They won't persist after refresh.",
-            variant: "destructive",
-          });
-        }
-      }
+    if (gen.generated_front1 || gen.generated_front2 || gen.generated_front3) {
+      setGeneratedFrontViews({
+        front1: gen.generated_front1 || "",
+        front2: gen.generated_front2 || "",
+        front3: gen.generated_front3 || "",
+      });
     }
-  }, [generatedBackViews]);
 
-  useEffect(() => {
-    if (typeof window !== "undefined" && selectedFrontIndex !== null) {
-      try {
-        sessionStorage.setItem(
-          "selectedFrontIndex",
-          JSON.stringify(selectedFrontIndex)
-        );
-      } catch (error: any) {
-        console.warn("Failed to save selected index:", error);
-      }
+    if (gen.generated_side) {
+      const sideIndex = gen.selected_front_index || 1;
+      const sideViews = { side1: "", side2: "", side3: "" };
+      sideViews[`side${sideIndex}` as keyof typeof sideViews] =
+        gen.generated_side;
+      setGeneratedSideViews(sideViews);
     }
-  }, [selectedFrontIndex]);
+
+    if (gen.generated_back) {
+      const backIndex = gen.selected_front_index || 1;
+      const backViews = { back1: "", back2: "", back3: "" };
+      backViews[`back${backIndex}` as keyof typeof backViews] =
+        gen.generated_back;
+      setGeneratedBackViews(backViews);
+    }
+
+    if (gen.selected_front_index) {
+      setSelectedFrontIndex(gen.selected_front_index);
+    }
+  };
 
   const loadUserData = async () => {
     setIsLoading(true);
@@ -401,6 +447,17 @@ export default function Home() {
         });
         setCredits(result.remainingCredits);
 
+        // Save to generations table for persistence
+        await saveGenerationToDB({
+          garment_type: garmentType,
+          front_view_url: frontPreview,
+          back_view_url: backPreview || null,
+          generated_front1: result.generatedFront1,
+          generated_front2: result.generatedFront2,
+          generated_front3: result.generatedFront3,
+          status: "front_generated",
+        });
+
         // Update Supabase garment record
         if (garmentData?.id) {
           try {
@@ -417,13 +474,6 @@ export default function Home() {
 
             if (updateError) {
               console.error("Supabase update error:", updateError);
-              // Log detailed error information
-              console.error("Error details:", {
-                code: updateError.code,
-                message: updateError.message,
-                details: updateError.details,
-                hint: updateError.hint,
-              });
             } else {
               console.log("Successfully updated garment record:", updatedData);
             }
@@ -484,14 +534,16 @@ export default function Home() {
       if (!token) throw new Error("No authentication token found");
 
       let requestBody: any = {
-        generatedImageType: viewType,
         mimeType,
         garmentType,
       };
 
       if (viewType === "front") {
+        // Use front-single to generate only ONE image instead of 3
+        requestBody.generatedImageType = "front-single";
         requestBody.frontViewBase64 = frontPreview;
       } else {
+        requestBody.generatedImageType = viewType;
         // For side and back, use the selected front view
         const frontKey =
           `front${selectedFrontIndex}` as keyof typeof generatedFrontViews;
@@ -539,23 +591,44 @@ export default function Home() {
       if (result.success) {
         // Update the specific image based on type
         if (viewType === "front") {
-          setGeneratedFrontViews((prev) => ({
-            ...prev!,
-            [`front${index}`]:
-              result.generatedFront1 ||
-              result.generatedFront2 ||
-              result.generatedFront3,
-          }));
+          const newFrontViews = {
+            ...generatedFrontViews!,
+            [`front${index}`]: result.generatedFront,
+          };
+          setGeneratedFrontViews(newFrontViews);
+
+          // Update in database
+          if (generationId) {
+            await updateGenerationInDB({
+              [`generated_front${index}`]: result.generatedFront,
+            });
+          }
         } else if (viewType === "side") {
-          setGeneratedSideViews((prev) => ({
-            ...prev!,
+          const newSideViews = {
+            ...generatedSideViews!,
             [`side${index}`]: result.generatedSide,
-          }));
+          };
+          setGeneratedSideViews(newSideViews);
+
+          // Update in database
+          if (generationId) {
+            await updateGenerationInDB({
+              generated_side: result.generatedSide,
+            });
+          }
         } else if (viewType === "back") {
-          setGeneratedBackViews((prev) => ({
-            ...prev!,
+          const newBackViews = {
+            ...generatedBackViews!,
             [`back${index}`]: result.generatedBack,
-          }));
+          };
+          setGeneratedBackViews(newBackViews);
+
+          // Update in database
+          if (generationId) {
+            await updateGenerationInDB({
+              generated_back: result.generatedBack,
+            });
+          }
         }
 
         setCredits(result.remainingCredits);
@@ -675,6 +748,17 @@ export default function Home() {
           setGeneratedBackViews(newBackViews);
         }
         setCredits(result.remainingCredits);
+
+        // Update generation in database
+        if (generationId) {
+          await updateGenerationInDB({
+            generated_side: result.generatedSide,
+            generated_back: result.generatedBack || null,
+            selected_front_index: index,
+            status: "completed",
+          });
+        }
+
         await supabase
           .from("garments")
           .update({
@@ -940,6 +1024,27 @@ export default function Home() {
     link.click();
   };
 
+  const handleClearUpload = () => {
+    // Clear all upload and generation states
+    setFrontView(null);
+    setBackView(null);
+    setFrontPreview("");
+    setBackPreview("");
+    setMimeType("");
+    setGarmentType("");
+    setGarmentRecordID(null);
+    setGenerationId(null);
+    setGeneratedFrontViews(null);
+    setGeneratedSideViews(null);
+    setGeneratedBackViews(null);
+    setSelectedFrontIndex(null);
+
+    toast({
+      title: "Cleared",
+      description: "Ready to try with another garment",
+    });
+  };
+
   return (
     <div className='min-h-screen bg-gradient-to-br from-slate-50 to-slate-100'>
       <div className='container mx-auto px-4 py-8'>
@@ -951,29 +1056,43 @@ export default function Home() {
                 3D Garment Visualizer
               </h1>
             </div>
-            <p className='text-lg text-slate-600'>
+            <p className='text-lg text-slate-600 mb-4'>
               Upload front and back images to generate 3D views of your garment
             </p>
+            <div className='flex items-center justify-center gap-4'>
+              <Link href='/how-to-use'>
+                <Button variant='outline' size='sm'>
+                  How to Use
+                </Button>
+              </Link>
+              <Link href='/examples'>
+                <Button variant='outline' size='sm'>
+                  View Examples
+                </Button>
+              </Link>
+            </div>
           </div>
           <div className='absolute right-5 top-5 flex items-center gap-4'>
             {isLoading ? (
               <div className='text-slate-600'>Loading...</div>
             ) : user ? (
               <div className='flex items-center gap-4'>
-                <Card className='bg-white shadow-md border-slate-200 px-4 py-2'>
-                  <div className='flex items-center gap-2'>
-                    <User className='w-4 h-4 text-slate-600' />
-                    <span className='text-sm font-medium text-slate-700'>
-                      {user.email}
-                    </span>
-                  </div>
-                  <div className='flex items-center gap-2 mt-1'>
-                    <CreditCard className='w-4 h-4 text-blue-600' />
-                    <span className='text-sm font-semibold text-blue-600'>
-                      {credits} credits
-                    </span>
-                  </div>
-                </Card>
+                <Link href='/profile'>
+                  <Card className='bg-white shadow-md border-slate-200 px-4 py-2 cursor-pointer hover:shadow-lg transition-shadow'>
+                    <div className='flex items-center gap-2'>
+                      <User className='w-4 h-4 text-slate-600' />
+                      <span className='text-sm font-medium text-slate-700'>
+                        {user.email}
+                      </span>
+                    </div>
+                    <div className='flex items-center gap-2 mt-1'>
+                      <CreditCard className='w-4 h-4 text-blue-600' />
+                      <span className='text-sm font-semibold text-blue-600'>
+                        {credits} credits
+                      </span>
+                    </div>
+                  </Card>
+                </Link>
                 <Link href='/pricing'>
                   <Button variant='outline' size='sm'>
                     <CreditCard className='w-4 h-4 mr-2' />
@@ -1002,7 +1121,7 @@ export default function Home() {
             <Alert className='bg-blue-50 border-blue-200'>
               <AlertCircle className='h-4 w-4 text-blue-600' />
               <AlertDescription className='text-blue-800'>
-                <strong>Please login to generate views.</strong> New users get 9
+                <strong>Please login to generate views.</strong> New users get 3
                 free credits!
               </AlertDescription>
             </Alert>
@@ -1011,10 +1130,26 @@ export default function Home() {
         <div className='max-w-6xl mx-auto'>
           <Card className='shadow-xl border-slate-200'>
             <CardHeader>
-              <CardTitle>Upload Garment Images</CardTitle>
-              <CardDescription>
-                Select the garment type and upload front and back view images
-              </CardDescription>
+              <div className='flex justify-between items-start'>
+                <div>
+                  <CardTitle>Upload Garment Images</CardTitle>
+                  <CardDescription>
+                    Select the garment type and upload front and back view
+                    images
+                  </CardDescription>
+                </div>
+                {(frontPreview || generatedFrontViews) && (
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={handleClearUpload}
+                    className='text-red-600 border-red-200 hover:bg-red-50'
+                  >
+                    <X className='w-4 h-4 mr-2' />
+                    Try with Another
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent className='space-y-6'>
               <div>
@@ -1165,19 +1300,21 @@ export default function Home() {
                               alt='Front View 1'
                               className='max-w-full h-auto'
                             />
-                            <div className='absolute top-2 right-2 flex flex-col gap-2'>
+                            <div className='absolute top-2 right-2'>
                               <Button
                                 onClick={() =>
                                   handleRegenerateImage("front", 1)
                                 }
                                 disabled={regeneratingImage === "front1"}
                                 variant='secondary'
-                                size='sm'
+                                size='icon'
+                                className='h-8 w-8'
+                                title='Regenerate'
                               >
                                 {regeneratingImage === "front1" ? (
                                   <Loader2 className='w-4 h-4 animate-spin' />
                                 ) : (
-                                  "Regenerate"
+                                  <RefreshCw className='w-4 h-4' />
                                 )}
                               </Button>
                             </div>
@@ -1237,17 +1374,19 @@ export default function Home() {
                               alt='Side View 1'
                               className='max-w-full h-auto'
                             />
-                            <div className='absolute top-2 right-2 flex flex-col gap-2'>
+                            <div className='absolute top-2 right-2'>
                               <Button
                                 onClick={() => handleRegenerateImage("side", 1)}
                                 disabled={regeneratingImage === "side1"}
                                 variant='secondary'
-                                size='sm'
+                                size='icon'
+                                className='h-8 w-8'
+                                title='Regenerate'
                               >
                                 {regeneratingImage === "side1" ? (
                                   <Loader2 className='w-4 h-4 animate-spin' />
                                 ) : (
-                                  "Regenerate"
+                                  <RefreshCw className='w-4 h-4' />
                                 )}
                               </Button>
                             </div>
@@ -1286,17 +1425,19 @@ export default function Home() {
                               alt='Back View 1'
                               className='max-w-full h-auto'
                             />
-                            <div className='absolute top-2 right-2 flex flex-col gap-2'>
+                            <div className='absolute top-2 right-2'>
                               <Button
                                 onClick={() => handleRegenerateImage("back", 1)}
                                 disabled={regeneratingImage === "back1"}
                                 variant='secondary'
-                                size='sm'
+                                size='icon'
+                                className='h-8 w-8'
+                                title='Regenerate'
                               >
                                 {regeneratingImage === "back1" ? (
                                   <Loader2 className='w-4 h-4 animate-spin' />
                                 ) : (
-                                  "Regenerate"
+                                  <RefreshCw className='w-4 h-4' />
                                 )}
                               </Button>
                             </div>
@@ -1338,19 +1479,21 @@ export default function Home() {
                               alt='Front View 2'
                               className='max-w-full h-auto'
                             />
-                            <div className='absolute top-2 right-2 flex flex-col gap-2'>
+                            <div className='absolute top-2 right-2'>
                               <Button
                                 onClick={() =>
                                   handleRegenerateImage("front", 2)
                                 }
                                 disabled={regeneratingImage === "front2"}
                                 variant='secondary'
-                                size='sm'
+                                size='icon'
+                                className='h-8 w-8'
+                                title='Regenerate'
                               >
                                 {regeneratingImage === "front2" ? (
                                   <Loader2 className='w-4 h-4 animate-spin' />
                                 ) : (
-                                  "Regenerate"
+                                  <RefreshCw className='w-4 h-4' />
                                 )}
                               </Button>
                             </div>
@@ -1410,17 +1553,19 @@ export default function Home() {
                               alt='Side View 2'
                               className='max-w-full h-auto'
                             />
-                            <div className='absolute top-2 right-2 flex flex-col gap-2'>
+                            <div className='absolute top-2 right-2'>
                               <Button
                                 onClick={() => handleRegenerateImage("side", 2)}
                                 disabled={regeneratingImage === "side2"}
                                 variant='secondary'
-                                size='sm'
+                                size='icon'
+                                className='h-8 w-8'
+                                title='Regenerate'
                               >
                                 {regeneratingImage === "side2" ? (
                                   <Loader2 className='w-4 h-4 animate-spin' />
                                 ) : (
-                                  "Regenerate"
+                                  <RefreshCw className='w-4 h-4' />
                                 )}
                               </Button>
                             </div>
@@ -1459,17 +1604,19 @@ export default function Home() {
                               alt='Back View 2'
                               className='max-w-full h-auto'
                             />
-                            <div className='absolute top-2 right-2 flex flex-col gap-2'>
+                            <div className='absolute top-2 right-2'>
                               <Button
                                 onClick={() => handleRegenerateImage("back", 2)}
                                 disabled={regeneratingImage === "back2"}
                                 variant='secondary'
-                                size='sm'
+                                size='icon'
+                                className='h-8 w-8'
+                                title='Regenerate'
                               >
                                 {regeneratingImage === "back2" ? (
                                   <Loader2 className='w-4 h-4 animate-spin' />
                                 ) : (
-                                  "Regenerate"
+                                  <RefreshCw className='w-4 h-4' />
                                 )}
                               </Button>
                             </div>
@@ -1511,19 +1658,21 @@ export default function Home() {
                               alt='Front View 3'
                               className='max-w-full h-auto'
                             />
-                            <div className='absolute top-2 right-2 flex flex-col gap-2'>
+                            <div className='absolute top-2 right-2'>
                               <Button
                                 onClick={() =>
                                   handleRegenerateImage("front", 3)
                                 }
                                 disabled={regeneratingImage === "front3"}
                                 variant='secondary'
-                                size='sm'
+                                size='icon'
+                                className='h-8 w-8'
+                                title='Regenerate'
                               >
                                 {regeneratingImage === "front3" ? (
                                   <Loader2 className='w-4 h-4 animate-spin' />
                                 ) : (
-                                  "Regenerate"
+                                  <RefreshCw className='w-4 h-4' />
                                 )}
                               </Button>
                             </div>
@@ -1583,17 +1732,19 @@ export default function Home() {
                               alt='Side View 3'
                               className='max-w-full h-auto'
                             />
-                            <div className='absolute top-2 right-2 flex flex-col gap-2'>
+                            <div className='absolute top-2 right-2'>
                               <Button
                                 onClick={() => handleRegenerateImage("side", 3)}
                                 disabled={regeneratingImage === "side3"}
                                 variant='secondary'
-                                size='sm'
+                                size='icon'
+                                className='h-8 w-8'
+                                title='Regenerate'
                               >
                                 {regeneratingImage === "side3" ? (
                                   <Loader2 className='w-4 h-4 animate-spin' />
                                 ) : (
-                                  "Regenerate"
+                                  <RefreshCw className='w-4 h-4' />
                                 )}
                               </Button>
                             </div>
@@ -1632,17 +1783,19 @@ export default function Home() {
                               alt='Back View 3'
                               className='max-w-full h-auto'
                             />
-                            <div className='absolute top-2 right-2 flex flex-col gap-2'>
+                            <div className='absolute top-2 right-2'>
                               <Button
                                 onClick={() => handleRegenerateImage("back", 3)}
                                 disabled={regeneratingImage === "back3"}
                                 variant='secondary'
-                                size='sm'
+                                size='icon'
+                                className='h-8 w-8'
+                                title='Regenerate'
                               >
                                 {regeneratingImage === "back3" ? (
                                   <Loader2 className='w-4 h-4 animate-spin' />
                                 ) : (
-                                  "Regenerate"
+                                  <RefreshCw className='w-4 h-4' />
                                 )}
                               </Button>
                             </div>
