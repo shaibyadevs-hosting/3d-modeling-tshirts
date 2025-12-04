@@ -2,10 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Create Supabase client lazily to avoid build-time errors
+const getSupabase = () => {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    throw new Error("Supabase configuration missing");
+  }
+
+  return createClient(url, key);
+};
 
 // Razorpay webhook handler for production use
 // This handles payment events asynchronously
@@ -62,6 +69,7 @@ export async function POST(req: NextRequest) {
 
 async function handlePaymentCaptured(payment: any) {
   console.log("Payment captured:", payment.id);
+  const supabase = getSupabase();
 
   // Update payment status in database
   const { data: order } = await supabase
@@ -113,6 +121,7 @@ async function handlePaymentCaptured(payment: any) {
 
 async function handlePaymentFailed(payment: any) {
   console.log("Payment failed:", payment.id);
+  const supabase = getSupabase();
 
   // Update order status
   await supabase
@@ -134,8 +143,8 @@ async function handleOrderPaid(order: any) {
   // This event is triggered after payment.captured
 }
 
-// Verify webhook signature (utility function)
-export function verifyWebhookSignature(
+// Verify webhook signature (utility function - not exported from route)
+function verifyWebhookSignature(
   body: string,
   signature: string,
   secret: string

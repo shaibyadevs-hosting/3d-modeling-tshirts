@@ -2,15 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import Razorpay from "razorpay";
 import { createClient } from "@supabase/supabase-js";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
-const razorpay = new Razorpay({
-  key_id: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID!,
-  key_secret: process.env.RAZORPAY_KEY_SECRET!,
-});
+function getRazorpay() {
+  return new Razorpay({
+    key_id: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID!,
+    key_secret: process.env.RAZORPAY_KEY_SECRET!,
+  });
+}
 
 // Pricing plans
 const PRICING_PLANS = {
@@ -20,6 +24,8 @@ const PRICING_PLANS = {
 };
 
 export async function POST(req: NextRequest) {
+  const supabase = getSupabase();
+  const razorpay = getRazorpay();
   try {
     const { plan, userId } = await req.json();
 

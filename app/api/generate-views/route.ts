@@ -160,6 +160,23 @@ export async function POST(request: NextRequest) {
         generatedFront3: generatedFront3Text,
         remainingCredits: creditResult.credits,
       });
+    } else if (generatedImageType === "front-single") {
+      // Regenerate only a single front view (for cost optimization)
+      const generatedFrontResult = await model.generateContent([
+        promptFront + ". " + promptInvisiblePerson,
+        convertBase64ToGenerativePart(frontViewBase64, mimeType),
+      ]);
+
+      const outputFrontBase64 = extractImageBase64(generatedFrontResult);
+      const generatedFrontText = `data:image/png;base64,${outputFrontBase64}`;
+
+      console.log("Generated single front view");
+
+      return NextResponse.json({
+        success: true,
+        generatedFront: generatedFrontText,
+        remainingCredits: creditResult.credits,
+      });
     } else if (generatedImageType === "side-back") {
       const generatedSideResult = await model.generateContent([
         promptSide,
