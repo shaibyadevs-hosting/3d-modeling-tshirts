@@ -53,7 +53,7 @@ export const signUp = async (email: string, password: string) => {
       .insert({
         email,
         password_hash: passwordHash,
-        credits: 9, // Initial 9 free credits
+        credits: 3, // Initial 3 free credits
       })
       .select()
       .single();
